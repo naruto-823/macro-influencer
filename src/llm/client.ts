@@ -25,7 +25,7 @@ export class ClaudeLlmClient implements LlmClient {
   private readonly client: Anthropic;
   constructor(
     private readonly model: string = DEFAULT_MODEL,
-    apiKey: string = process.env['ANTHROPIC_API_KEY'] ?? '',
+    apiKey: string = process.env.ANTHROPIC_API_KEY ?? '',
   ) {
     this.client = new Anthropic({ apiKey });
   }

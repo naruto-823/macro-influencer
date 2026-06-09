@@ -20,7 +20,9 @@ export const topicGenerateSkill: Skill<Topic[]> = {
         `账号定位：${persona.positioning}`,
         `内容风格：${persona.styleGuide}`,
         persona.topicPreferences?.length ? `选题偏好：${persona.topicPreferences.join('、')}` : '',
-        persona.forbiddenZones?.length ? `内容禁区（必须规避）：${persona.forbiddenZones.join('、')}` : '',
+        persona.forbiddenZones?.length
+          ? `内容禁区（必须规避）：${persona.forbiddenZones.join('、')}`
+          : '',
         '',
         '当前热点：',
         hotspotLines,

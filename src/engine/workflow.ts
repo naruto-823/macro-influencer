@@ -32,7 +32,7 @@ export class WorkflowEngine {
 
   /** 跑完整条流水线，返回最终 bag。 */
   async run(
-    runId: string,
+    _runId: string,
     stages: Stage[],
     ctxBase: Omit<SkillContext, 'bag'>,
   ): Promise<Record<string, unknown>> {
