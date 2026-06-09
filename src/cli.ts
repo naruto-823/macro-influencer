@@ -42,7 +42,16 @@ async function main(): Promise<void> {
   });
 
   const dir = await persistRun(resolve('runs'), runId, bag);
-  console.log(`\n✅ 完成，产物已落盘：${dir}`);
+  if (bag['asset.assemble']) {
+    console.log(`\n✅ 完成，产物已落盘：${dir}`);
+  } else {
+    const halted = bag['gate.risk.review'] === '打回';
+    console.log(
+      halted
+        ? `\n⏹ 已在风控环节打回，未产出最终作品。中间产物已落盘：${dir}`
+        : `\n⚠️ 流水线未产出最终作品（提前中止）。中间产物已落盘：${dir}`,
+    );
+  }
 }
 
 if (process.argv[1]?.endsWith('cli.ts') || process.argv[1]?.endsWith('cli.js')) {

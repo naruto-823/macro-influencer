@@ -9,11 +9,11 @@ function ctx(llm: FakeLlmClient, threshold = 80, maxRounds = 3): SkillContext {
   return {
     runId: 'r1',
     llm,
-    // biome-ignore lint/suspicious/noExplicitAny: 仅读风格与阈值
     persona: {
       styleGuide: '口语化',
       refineThreshold: threshold,
       maxRefineRounds: maxRounds,
+      // biome-ignore lint/suspicious/noExplicitAny: 仅读风格与阈值
     } as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources
     sources: {} as any,
