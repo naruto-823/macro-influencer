@@ -60,6 +60,12 @@
   .hot-row .hv { color:var(--run); flex:none; font-size:11px; }
   .side { border-left:1px solid var(--line); background:#0a0d12; padding:16px; overflow:auto; }
   .side h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 10px; letter-spacing:.5px; }
+  .mini { background:none; border:1px solid var(--line); color:var(--dim); border-radius:6px;
+          padding:0 6px; font-size:11px; cursor:pointer; }
+  .run-item { padding:6px 8px; border-radius:6px; cursor:pointer; font-size:12px; color:var(--dim);
+              border:1px solid transparent; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .run-item:hover { background:#161b22; color:var(--txt); border-color:var(--line); }
+  .run-item.active { background:#161b22; color:var(--txt); border-color:var(--accent); }
   .log { font:12px/1.6 ui-monospace,Menlo,monospace; }
   .log div { padding:2px 0; border-bottom:1px solid #161b22; color:var(--dim); }
   .log .hl { color:var(--txt); }
@@ -84,7 +90,9 @@
     <div class="detail" id="detail"><div class="empty">点上方任一阶段查看它的实时产物。</div></div>
   </div>
   <div class="side">
-    <h3>事件流</h3>
+    <h3>历史 <button class="mini" id="refreshRuns">↻</button></h3>
+    <div class="runs" id="runs"></div>
+    <h3 style="margin-top:16px">事件流</h3>
     <div class="log" id="log"></div>
   </div>
 </div>
@@ -157,6 +165,32 @@ function showDetail(sk){
   detail.innerHTML=`<h2>${name}</h2>${fmt(sk,outputs[sk])}`;
 }
 
+// —— 历史 run 回看 ——
+const STAGE_ORDER=['hotspot.fetch','topic.generate','content.draft','content.refine','risk.review','asset.assemble'];
+const runsEl=document.getElementById('runs');
+function shortId(id){ const m=id.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/); return m?`${m[2]}-${m[3]} ${m[4]}:${m[5]}`:id; }
+async function loadRuns(){
+  try{
+    const runs=await (await fetch('/runs')).json();
+    runsEl.innerHTML = runs.length ? runs.map(r=>`<div class="run-item" data-id="${r.id}">${r.done?'✅':'⏳'} ${shortId(r.id)} · ${esc((r.title||'').slice(0,16))}</div>`).join('') : '<span class="empty">暂无历史</span>';
+    runsEl.querySelectorAll('.run-item').forEach(el=>{ el.onclick=()=>openRun(el.dataset.id); });
+  }catch{ runsEl.innerHTML='<span class="empty">加载失败</span>'; }
+}
+async function openRun(id){
+  try{
+    const bag=await (await fetch('/runs/'+encodeURIComponent(id))).json();
+    runsEl.querySelectorAll('.run-item').forEach(el=>el.classList.toggle('active', el.dataset.id===id));
+    buildPipe(STAGE_ORDER);
+    STAGE_ORDER.forEach(sk=>{ if(bag[sk]!==undefined){ outputs[sk]=bag[sk]; setNode(sk,'done'); } });
+    if(bag['gate.topic.generate']) addGate('topic.generate', bag['gate.topic.generate']);
+    if(bag['gate.risk.review']) addGate('risk.review', bag['gate.risk.review']);
+    banner.className='banner ok'; banner.textContent='📂 历史回看：'+id;
+    showDetail(bag['asset.assemble']!==undefined ? 'asset.assemble' : (STAGE_ORDER.find(sk=>bag[sk]!==undefined)||'hotspot.fetch'));
+  }catch{ banner.className='banner fail'; banner.textContent='读取历史失败：'+id; }
+}
+document.getElementById('refreshRuns').onclick=loadRuns;
+loadRuns();
+
 const es=new EventSource('/events');
 es.onmessage=ev=>{
   const e=JSON.parse(ev.data);
@@ -165,7 +199,7 @@ es.onmessage=ev=>{
   else if(e.type==='stage.progress'){ log('  '+e.msg); }
   else if(e.type==='stage.done'){ outputs[e.skill]=e.output; setNode(e.skill,'done'); if(activeSkill===e.skill)showDetail(e.skill); }
   else if(e.type==='gate'){ addGate(e.skill,e.choice); log('卡点「'+e.skill+'」→ '+e.choice,1); }
-  else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); }
+  else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); loadRuns(); }
   else if(e.type==='run.failed'){ statusEl.textContent='失败 ❌'; goBtn.disabled=false; if(e.skill)setNode(e.skill,'failed'); banner.className='banner fail'; banner.textContent='❌ 失败'+(e.skill?'（'+e.skill+'）':'')+'：'+e.error; log('❌ '+e.error,1); }
 };
 es.onerror=()=>{ statusEl.textContent='连接断开，刷新重试'; };

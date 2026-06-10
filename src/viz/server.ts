@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPersona, newRunId } from '../cli.js';
 import { EventBus } from '../engine/events.js';
@@ -22,7 +22,31 @@ const PORT = Number(process.env.VIZ_PORT ?? 5180);
 const INDEX_HTML = fileURLToPath(new URL('./index.html', import.meta.url));
 
 const bus = new EventBus();
+const RUNS_DIR = resolve('runs');
 let running = false;
+
+/** 列出历史 run（读 runs/<id>/result.json），按时间倒序，附带一个标题用于展示。 */
+async function listRuns(): Promise<Array<{ id: string; title: string; done: boolean }>> {
+  let entries: string[] = [];
+  try {
+    entries = await readdir(RUNS_DIR);
+  } catch {
+    return [];
+  }
+  const runs: Array<{ id: string; title: string; done: boolean }> = [];
+  for (const id of entries) {
+    try {
+      const bag = JSON.parse(await readFile(join(RUNS_DIR, id, 'result.json'), 'utf8'));
+      const asset = bag['asset.assemble'] as { titles?: string[] } | undefined;
+      const draft = bag['content.draft'] as { title?: string } | undefined;
+      runs.push({ id, title: asset?.titles?.[0] ?? draft?.title ?? '(未完成)', done: !!asset });
+    } catch {
+      // 跳过没有 result.json 的目录
+    }
+  }
+  runs.sort((a, b) => (a.id < b.id ? 1 : -1));
+  return runs;
+}
 
 /** 触发一次真跑（auto 模式），事件经 bus 广播给所有 SSE 连接。 */
 async function startRun(personaId: string): Promise<boolean> {
@@ -76,6 +100,26 @@ const server = createServer(async (req, res) => {
       clearInterval(ping);
       off();
     });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/runs') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(await listRuns()));
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/runs/')) {
+    const id = decodeURIComponent(url.pathname.slice('/runs/'.length));
+    // 防目录穿越：只允许实际存在的 run 目录
+    const runs = await listRuns();
+    if (!runs.some((r) => r.id === id)) {
+      res.writeHead(404);
+      res.end('no such run');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(await readFile(join(RUNS_DIR, id, 'result.json'), 'utf8'));
     return;
   }
 
