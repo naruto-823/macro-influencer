@@ -7,6 +7,7 @@ import { demoPersona } from './persona/examples/demo.js';
 import type { PersonaPack } from './persona/persona-pack.js';
 import { runPipeline } from './run.js';
 import { MockHotspotSource } from './sources/hotspot-source.js';
+import { ZhihuHotspotSource } from './sources/zhihu-hotspot.js';
 
 /** 用进程启动时间戳生成 run id。 */
 export function newRunId(): string {
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
   const bag = await runPipeline(runId, {
     llm: new ClaudeLlmClient(),
     persona,
-    hotspot: new MockHotspotSource(),
+    hotspot: new ZhihuHotspotSource({ fallback: new MockHotspotSource() }),
     engineCfg: {
       skillTimeoutMs: 120_000,
       runWallclockMs: 600_000,

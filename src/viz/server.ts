@@ -9,6 +9,7 @@ import { persistRun } from '../output/persist.js';
 import { demoPersona } from '../persona/examples/demo.js';
 import { runPipeline } from '../run.js';
 import { MockHotspotSource } from '../sources/hotspot-source.js';
+import { ZhihuHotspotSource } from '../sources/zhihu-hotspot.js';
 
 // 加载本项目 .env（fox 代理 key/baseURL/model 在此），与 cli 一致。
 try {
@@ -33,7 +34,7 @@ async function startRun(personaId: string): Promise<boolean> {
     const bag = await runPipeline(runId, {
       llm: new ClaudeLlmClient(),
       persona,
-      hotspot: new MockHotspotSource(),
+      hotspot: new ZhihuHotspotSource({ fallback: new MockHotspotSource() }),
       engineCfg: {
         skillTimeoutMs: 120_000,
         runWallclockMs: 600_000,
