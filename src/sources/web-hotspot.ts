@@ -98,7 +98,7 @@ function parseHeat(it: RawItem, rankFallback: number): number {
 
 /**
  * 多源热点聚合：并发拉取多个平台热榜，合并去重，按对本账号的相关性排序（同分按热度）。
- * 单平台失败自动跳过；全部失败回退到注入的 fallback（如 Mock）。永不抛错。
+ * 单平台失败自动跳过；全部失败时若注入了 fallback 则用之，否则返回空数组。永不抛错、绝不造假数据。
  */
 export class MultiHotspotSource implements HotspotSource {
   private readonly platforms: Platform[];

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { MockHotspotSource } from './hotspot-source.js';
+import type { HotspotSource } from './hotspot-source.js';
 import { MultiHotspotSource, type Platform } from './web-hotspot.js';
+
+// 内联假兜底源（离线、确定性）。
+const fakeFallback: HotspotSource = {
+  async fetch() {
+    return [{ id: 'fb', title: '兜底热点', heat: 1, source: 'fallback', keywords: [] }];
+  },
+};
 
 const PLATFORMS: Platform[] = [
   { key: 'zhihu', label: '知乎热榜', url: 'http://x/zhihu' },
@@ -57,7 +64,7 @@ describe('MultiHotspotSource', () => {
       fetcher: async () => {
         throw new Error('network down');
       },
-      fallback: new MockHotspotSource(),
+      fallback: fakeFallback,
     });
     expect((await src.fetch({ limit: 3 })).length).toBeGreaterThan(0);
   });

@@ -3,7 +3,14 @@ import type { EngineConfig } from './engine/workflow.js';
 import { FakeLlmClient } from './llm/fake.js';
 import { demoPersona } from './persona/examples/demo.js';
 import { runPipeline } from './run.js';
-import { MockHotspotSource } from './sources/hotspot-source.js';
+import type { HotspotSource } from './sources/hotspot-source.js';
+
+// 内联假热点源（离线、确定性），避免 E2E 打真实网络。
+const fakeHotspot: HotspotSource = {
+  async fetch() {
+    return [{ id: 'h1', title: '测试热点', heat: 1, source: 'test', keywords: [] }];
+  },
+};
 
 describe('runPipeline E2E（全链路用 FakeLlm）', () => {
   it('从热点跑到最终作品包', async () => {
@@ -35,7 +42,7 @@ describe('runPipeline E2E（全链路用 FakeLlm）', () => {
     const bag = await runPipeline('run-e2e', {
       llm,
       persona: demoPersona,
-      hotspot: new MockHotspotSource(),
+      hotspot: fakeHotspot,
       engineCfg,
     });
 

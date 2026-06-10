@@ -6,7 +6,6 @@ import { persistRun } from './output/persist.js';
 import { demoPersona } from './persona/examples/demo.js';
 import type { PersonaPack } from './persona/persona-pack.js';
 import { runPipeline } from './run.js';
-import { MockHotspotSource } from './sources/hotspot-source.js';
 import { MultiHotspotSource } from './sources/web-hotspot.js';
 
 /** 用进程启动时间戳生成 run id。 */
@@ -92,7 +91,7 @@ async function main(): Promise<void> {
   const bag = await runPipeline(runId, {
     llm: new ClaudeLlmClient(),
     persona,
-    hotspot: new MultiHotspotSource({ fallback: new MockHotspotSource() }),
+    hotspot: new MultiHotspotSource(),
     engineCfg: {
       skillTimeoutMs: 120_000,
       runWallclockMs: 600_000,

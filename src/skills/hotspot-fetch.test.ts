@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { SkillContext } from '../engine/types.js';
-import { MockHotspotSource } from '../sources/hotspot-source.js';
+import type { HotspotSource } from '../sources/hotspot-source.js';
 import { hotspotFetchSkill } from './hotspot-fetch.js';
+
+// 内联假热点源（离线、确定性）：返回 3 条，便于断言。
+const fakeHotspot: HotspotSource = {
+  async fetch() {
+    return [
+      { id: 'h1', title: '热点一', heat: 3, source: 'test', keywords: [] },
+      { id: 'h2', title: '热点二', heat: 2, source: 'test', keywords: [] },
+      { id: 'h3', title: '热点三', heat: 1, source: 'test', keywords: [] },
+    ];
+  },
+};
 
 function ctx(persona: Partial<{ topicPreferences: string[] }>): SkillContext {
   return {
@@ -10,7 +21,7 @@ function ctx(persona: Partial<{ topicPreferences: string[] }>): SkillContext {
     llm: {} as any,
     // biome-ignore lint/suspicious/noExplicitAny: 仅用到 topicPreferences
     persona: { topicPreferences: persona.topicPreferences } as any,
-    sources: { hotspot: new MockHotspotSource() },
+    sources: { hotspot: fakeHotspot },
     bag: {},
     emit: () => {},
     signal: new AbortController().signal,
