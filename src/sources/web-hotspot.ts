@@ -10,10 +10,12 @@ export interface Platform {
   url: string;
 }
 
-/** 默认聚合的平台（60s 聚合接口，沙箱可达；B 站常 500 故不含）。 */
+/**
+ * 默认聚合的 JSON 平台（60s 聚合接口，公开免登录、沙箱可达）。
+ * 微博不走这里——它的 60s 源不准且有延迟；官方实时微博走 WeiboHotspotSource（带 cookie），作为 extraSources 注入。
+ */
 export const DEFAULT_PLATFORMS: Platform[] = [
   { key: 'zhihu', label: '知乎热榜', url: 'https://60s-api.viki.moe/v2/zhihu' },
-  { key: 'weibo', label: '微博热搜', url: 'https://60s-api.viki.moe/v2/weibo' },
   { key: 'douyin', label: '抖音热点', url: 'https://60s-api.viki.moe/v2/douyin' },
   { key: 'toutiao', label: '头条热榜', url: 'https://60s-api.viki.moe/v2/toutiao' },
 ];
@@ -102,6 +104,7 @@ function parseHeat(it: RawItem, rankFallback: number): number {
  */
 export class MultiHotspotSource implements HotspotSource {
   private readonly platforms: Platform[];
+  private readonly extraSources: HotspotSource[];
   private readonly boostTerms: string[];
   private readonly fetcher: Fetcher;
   private readonly fallback?: HotspotSource;
@@ -109,12 +112,15 @@ export class MultiHotspotSource implements HotspotSource {
   constructor(
     opts: {
       platforms?: Platform[];
+      /** 额外热点源（如官方微博 WeiboHotspotSource），与 JSON 平台一起聚合排序。 */
+      extraSources?: HotspotSource[];
       boostTerms?: string[];
       fetcher?: Fetcher;
       fallback?: HotspotSource;
     } = {},
   ) {
     this.platforms = opts.platforms ?? DEFAULT_PLATFORMS;
+    this.extraSources = opts.extraSources ?? [];
     this.boostTerms = opts.boostTerms ?? DEFAULT_BOOST_TERMS;
     this.fetcher = opts.fetcher ?? ((u) => fetch(u, { signal: AbortSignal.timeout(8000) }));
     this.fallback = opts.fallback;
@@ -143,7 +149,10 @@ export class MultiHotspotSource implements HotspotSource {
   }
 
   async fetch(opts: FetchOpts): Promise<Hotspot[]> {
-    const settled = await Promise.allSettled(this.platforms.map((p) => this.fetchPlatform(p)));
+    const settled = await Promise.allSettled([
+      ...this.platforms.map((p) => this.fetchPlatform(p)),
+      ...this.extraSources.map((s) => s.fetch(opts)),
+    ]);
     const merged = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
     if (merged.length === 0) return this.fallback ? this.fallback.fetch(opts) : [];
 
