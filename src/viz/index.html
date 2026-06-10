@@ -58,6 +58,12 @@
   .hot-row .rk.top { color:var(--fail); font-weight:600; }
   .hot-row .ht { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hot-row .hv { color:var(--run); flex:none; font-size:11px; }
+  .recs { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:12px; }
+  .rec { background:#0d1117; border:1px solid var(--accent); border-radius:10px; padding:12px 14px; }
+  .rec-h { display:flex; gap:8px; align-items:baseline; font-weight:600; margin-bottom:6px; }
+  .rec-h .rec-src { color:var(--blue); font-size:11px; flex:none; }
+  .rec-h .rec-t { flex:1; }
+  .rec-b { font-size:12px; color:var(--dim); line-height:1.7; }
   .side { border-left:1px solid var(--line); background:#0a0d12; padding:16px; overflow:auto; }
   .side h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 10px; letter-spacing:.5px; }
   .mini { background:none; border:1px solid var(--line); color:var(--dim); border-radius:6px;
@@ -99,7 +105,7 @@
 
 <script>
 const TITLES = {
-  'hotspot.fetch':['①','抓热点'], 'topic.generate':['②','生成选题集'],
+  'hotspot.fetch':['①','抓热点'], 'hotspot.recommend':['🎯','精选推荐'], 'topic.generate':['②','生成选题集'],
   'content.draft':['③','生成初稿'], 'content.refine':['③','反复打磨'],
   'risk.review':['④','过风控'], 'asset.assemble':['⑤','组装成品'],
 };
@@ -151,6 +157,7 @@ function fmt(sk,o){
     }).join('');
     return `<div class="boards">${boards}</div>`;
   }
+  if(sk==='hotspot.recommend'){ const a=o||[]; if(!a.length) return '<span class="empty">本次无精选</span>'; return '<div class="recs">'+a.map((r,i)=>`<div class="rec"><div class="rec-h"><span class="rk top">${i+1}</span><span class="rec-src">${esc(r.source)}</span><span class="rec-t">${esc(r.title)}</span><span class="hv">${fmtHeat(r.heat)}</span></div><div class="rec-b">💡 ${esc(r.reason)}<br>🎬 ${esc(r.angle)}</div></div>`).join('')+'</div>'; }
   if(sk==='topic.generate'){ return (o||[]).map((t,i)=>`<div><b>${i+1}. ${esc(t.title)}</b><br><span style="color:#8b949e">角度：${esc(t.angle)}</span></div>`).join('<br>'); }
   if(sk==='content.draft'){ return `<b>${esc(o.title)}</b><pre>${esc(o.body)}</pre>`; }
   if(sk==='content.refine'){ const r=(o.rounds||[]).map(x=>`<span class="chip">第${x.round}轮 ${x.total}分</span>`).join(''); return `${r}<br><br><b>${esc(o.final?.title||'')}</b><pre>${esc(o.final?.body||'')}</pre>`; }
@@ -166,7 +173,7 @@ function showDetail(sk){
 }
 
 // —— 历史 run 回看 ——
-const STAGE_ORDER=['hotspot.fetch','topic.generate','content.draft','content.refine','risk.review','asset.assemble'];
+const STAGE_ORDER=['hotspot.fetch','hotspot.recommend','topic.generate','content.draft','content.refine','risk.review','asset.assemble'];
 const runsEl=document.getElementById('runs');
 function shortId(id){ const m=id.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/); return m?`${m[2]}-${m[3]} ${m[4]}:${m[5]}`:id; }
 async function loadRuns(){

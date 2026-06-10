@@ -12,6 +12,15 @@ export interface Hotspot {
   summary?: string;
 }
 
+/** ①.5 精选推荐：结合人设从海量热搜里挑出的高匹配爆款（带推荐理由与切入角度）。 */
+export interface RecommendedHotspot {
+  title: string;
+  source: string;
+  heat: number;
+  reason: string;
+  angle: string;
+}
+
 /** ② 选题 */
 export interface Topic {
   id: string;

@@ -14,9 +14,10 @@ const fakeHotspot: HotspotSource = {
 
 describe('runPipeline E2E（全链路用 FakeLlm）', () => {
   it('从热点跑到最终作品包', async () => {
-    // 依次对应：topic.generate / content.draft / content.refine / asset.assemble
+    // 依次对应：hotspot.recommend / topic.generate / content.draft / content.refine / asset.assemble
     // （risk.review 因示例文案无敏感词命中而不调用 LLM）
     const llm = new FakeLlmClient([
+      JSON.stringify({ picks: [{ index: 0, reason: '契合', angle: '角度' }] }),
       JSON.stringify({ topics: [{ title: '选题1', angle: '角度', rationale: '契合' }] }),
       JSON.stringify({ title: '初稿标题', body: '初稿正文，分享一个好用的小工具' }),
       JSON.stringify({

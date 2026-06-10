@@ -1,4 +1,4 @@
-import type { Hotspot, Skill, Topic } from '../engine/types.js';
+import type { Hotspot, RecommendedHotspot, Skill, Topic } from '../engine/types.js';
 
 interface RawTopics {
   topics: Array<{ title: string; angle: string; rationale: string }>;
@@ -8,12 +8,15 @@ export const topicGenerateSkill: Skill<Topic[]> = {
   name: 'topic.generate',
   title: '② 生成选题集',
   async run(ctx) {
-    // 取排序后前 20 条（热搜词+相关性优先）作为选题素材，避免 prompt 过大。
-    const hotspots = ((ctx.bag['hotspot.fetch'] as Hotspot[]) ?? []).slice(0, 20);
     const { persona } = ctx;
-    const hotspotLines = hotspots
-      .map((h) => `- ${h.title}（热度${h.heat}，关键词：${h.keywords.join('、')}）`)
-      .join('\n');
+    // 优先用「精选推荐」做素材（已结合人设挑过、带角度）；没有则退回原始热点前 20 条。
+    const recs = (ctx.bag['hotspot.recommend'] as RecommendedHotspot[]) ?? [];
+    const hotspotLines = recs.length
+      ? recs.map((r) => `- ${r.title}（${r.source}，建议角度：${r.angle}）`).join('\n')
+      : ((ctx.bag['hotspot.fetch'] as Hotspot[]) ?? [])
+          .slice(0, 20)
+          .map((h) => `- ${h.title}（热度${h.heat}）`)
+          .join('\n');
 
     const raw = await ctx.llm.completeJson<RawTopics>({
       schema: {

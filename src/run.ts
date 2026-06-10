@@ -8,6 +8,7 @@ import { assetAssembleSkill } from './skills/asset-assemble.js';
 import { contentDraftSkill } from './skills/content-draft.js';
 import { contentRefineSkill } from './skills/content-refine.js';
 import { hotspotFetchSkill } from './skills/hotspot-fetch.js';
+import { hotspotRecommendSkill } from './skills/hotspot-recommend.js';
 import { riskReviewSkill } from './skills/risk-review.js';
 import { topicGenerateSkill } from './skills/topic-generate.js';
 import type { HotspotSource } from './sources/hotspot-source.js';
@@ -16,6 +17,7 @@ export function buildRegistry(): SkillRegistry {
   const reg = new SkillRegistry();
   for (const s of [
     hotspotFetchSkill,
+    hotspotRecommendSkill,
     topicGenerateSkill,
     contentDraftSkill,
     contentRefineSkill,
@@ -35,6 +37,7 @@ function topicGateOptions(bag: Record<string, unknown>): string[] {
 
 export const STAGES: Stage[] = [
   { skillName: 'hotspot.fetch' },
+  { skillName: 'hotspot.recommend' },
   {
     skillName: 'topic.generate',
     gateAfter: { question: '选择一个选题（输入 id）', options: topicGateOptions },
