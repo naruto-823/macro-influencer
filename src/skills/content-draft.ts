@@ -14,6 +14,11 @@ export const contentDraftSkill: Skill<Draft> = {
       .join('\n---\n');
 
     const draft = await ctx.llm.completeJson<Draft>({
+      schema: {
+        type: 'object',
+        properties: { title: { type: 'string' }, body: { type: 'string' } },
+        required: ['title', 'body'],
+      },
       system: '你是小红书爆款写手，严格模仿账号既有风格写笔记。',
       prompt: [
         `内容风格指南：${ctx.persona.styleGuide}`,

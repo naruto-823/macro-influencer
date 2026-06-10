@@ -6,6 +6,16 @@ export const assetAssembleSkill: Skill<FinalAsset> = {
   async run(ctx) {
     const draft = (ctx.bag['risk.review'] as RiskReport).rewritten;
     const asset = await ctx.llm.completeJson<FinalAsset>({
+      schema: {
+        type: 'object',
+        properties: {
+          titles: { type: 'array', items: { type: 'string' } },
+          body: { type: 'string' },
+          imagePrompts: { type: 'array', items: { type: 'string' } },
+          publishTips: { type: 'string' },
+        },
+        required: ['titles', 'body', 'imagePrompts', 'publishTips'],
+      },
       system: '你是小红书运营专家，负责把成稿打包成可直接发布的作品。',
       prompt: [
         '基于以下成稿，产出可直接发布的作品包：',

@@ -17,6 +17,11 @@ export const riskReviewSkill: Skill<RiskReport> = {
     const hitDesc = hits.map((h) => `「${h.term}」(${h.category})`).join('、');
     ctx.emit(`  命中 ${hits.length} 处：${hitDesc}，改写规避中…`);
     const rewritten = await ctx.llm.completeJson<Draft>({
+      schema: {
+        type: 'object',
+        properties: { title: { type: 'string' }, body: { type: 'string' } },
+        required: ['title', 'body'],
+      },
       system: '你是小红书合规改写专家。在不损伤表达力的前提下规避平台违禁表述。',
       prompt: [
         '以下文案命中平台敏感/违禁表述，请改写规避，保持原意与风格：',

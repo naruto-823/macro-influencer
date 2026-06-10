@@ -21,6 +21,30 @@ export const contentRefineSkill: Skill<RefineResult> = {
 
     for (let i = 1; i <= maxRounds; i++) {
       const raw = await ctx.llm.completeJson<RawRound>({
+        schema: {
+          type: 'object',
+          properties: {
+            scores: {
+              type: 'object',
+              properties: {
+                hook: { type: 'number' },
+                emotion: { type: 'number' },
+                density: { type: 'number' },
+                style: { type: 'number' },
+                structure: { type: 'number' },
+              },
+              required: ['hook', 'emotion', 'density', 'style', 'structure'],
+            },
+            total: { type: 'number' },
+            critique: { type: 'string' },
+            revised: {
+              type: 'object',
+              properties: { title: { type: 'string' }, body: { type: 'string' } },
+              required: ['title', 'body'],
+            },
+          },
+          required: ['scores', 'total', 'critique', 'revised'],
+        },
         system: '你是严苛的小红书内容评审兼改写专家。先按维度打分给评语，再据此改写出更好的一版。',
         prompt: [
           `内容风格指南：${ctx.persona.styleGuide}`,
@@ -35,7 +59,8 @@ export const contentRefineSkill: Skill<RefineResult> = {
         ].join('\n'),
       });
       rounds.push({ round: i, scores: raw.scores, total: raw.total, critique: raw.critique });
-      current = raw.revised;
+      // 仅当改写稿完整（标题+正文都非空）才采纳，避免某轮退化稿污染下游。
+      if (raw.revised?.title?.trim() && raw.revised?.body?.trim()) current = raw.revised;
       ctx.emit(`  第${i}轮打磨：${raw.total} 分`);
       if (raw.total >= threshold) break;
     }

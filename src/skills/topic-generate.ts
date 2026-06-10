@@ -15,6 +15,24 @@ export const topicGenerateSkill: Skill<Topic[]> = {
       .join('\n');
 
     const raw = await ctx.llm.completeJson<RawTopics>({
+      schema: {
+        type: 'object',
+        properties: {
+          topics: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string' },
+                angle: { type: 'string' },
+                rationale: { type: 'string' },
+              },
+              required: ['title', 'angle', 'rationale'],
+            },
+          },
+        },
+        required: ['topics'],
+      },
       system: '你是资深小红书内容策划，擅长把热点结合账号人设拆成高潜力选题。',
       prompt: [
         `账号定位：${persona.positioning}`,
