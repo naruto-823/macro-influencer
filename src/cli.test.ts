@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newRunId, resolveGateChoice } from './cli.js';
+import { newRunId, parseArgs, resolveGateChoice } from './cli.js';
 
 describe('newRunId', () => {
   it('生成带 run- 前缀的非空 id', () => {
@@ -18,5 +18,20 @@ describe('resolveGateChoice', () => {
   });
   it('空输入退回第一个选项', () => {
     expect(resolveGateChoice('', ['t1', 't2'])).toBe('t1');
+  });
+});
+
+describe('parseArgs', () => {
+  it('缺省 auto 为 false、无 persona', () => {
+    expect(parseArgs([])).toEqual({ auto: false });
+  });
+  it('解析 --auto', () => {
+    expect(parseArgs(['--auto']).auto).toBe(true);
+  });
+  it('解析 --persona <id>（空格形式）', () => {
+    expect(parseArgs(['--persona', 'gunzi-daren']).persona).toBe('gunzi-daren');
+  });
+  it('解析 --persona=<id>（等号形式）', () => {
+    expect(parseArgs(['--persona=demo', '--auto'])).toEqual({ persona: 'demo', auto: true });
   });
 });

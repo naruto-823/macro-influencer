@@ -21,13 +21,23 @@ export function parseJson<T>(text: string): T {
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
+export interface ClaudeOpts {
+  /** 模型，缺省读 ANTHROPIC_MODEL，再缺省 claude-sonnet-4-6 */
+  model?: string;
+  /** API key，缺省读 ANTHROPIC_API_KEY */
+  apiKey?: string;
+  /** 自定义网关地址（如公司合规代理 fox），缺省读 ANTHROPIC_BASE_URL；不设则走官方 */
+  baseURL?: string;
+}
+
 export class ClaudeLlmClient implements LlmClient {
   private readonly client: Anthropic;
-  constructor(
-    private readonly model: string = DEFAULT_MODEL,
-    apiKey: string = process.env.ANTHROPIC_API_KEY ?? '',
-  ) {
-    this.client = new Anthropic({ apiKey });
+  private readonly model: string;
+  constructor(opts: ClaudeOpts = {}) {
+    this.model = opts.model ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
+    const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
+    const baseURL = opts.baseURL ?? process.env.ANTHROPIC_BASE_URL;
+    this.client = new Anthropic({ apiKey, baseURL: baseURL || undefined });
   }
 
   async complete(opts: LlmCompleteOpts): Promise<string> {
