@@ -39,11 +39,13 @@ describe('hotspot.recommend', () => {
     expect(llm.calls[0]?.prompt).toContain('大厂研发');
   });
 
-  it('越界下标被忽略', async () => {
+  it('越界下标被忽略；LLM 没选出时兜底取相关性最高的候选', async () => {
     const llm = new FakeLlmClient([
       JSON.stringify({ picks: [{ index: 99, reason: 'x', angle: 'y' }] }),
     ]);
-    expect(await hotspotRecommendSkill.run(ctx(llm))).toEqual([]);
+    const recs = await hotspotRecommendSkill.run(ctx(llm));
+    expect(recs.length).toBe(2); // 越界被忽略 → 兜底取候选（≤8）
+    expect(recs[0]?.reason).toContain('兜底');
   });
 
   it('无热点时直接返回空、不调用 LLM', async () => {

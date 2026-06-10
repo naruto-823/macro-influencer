@@ -48,10 +48,20 @@ async function listRuns(): Promise<Array<{ id: string; title: string; done: bool
   return runs;
 }
 
-/** 触发一次真跑（auto 模式），事件经 bus 广播给所有 SSE 连接。 */
+// 交互卡点：到卡点时 gate() 挂起、等前端 POST /gate 才继续（不自动往下跑，省 token）。
+let pendingGate: { options: string[]; resolve: (choice: string) => void } | null = null;
+
+function interactiveGate(_question: string, options: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    pendingGate = { options, resolve };
+  });
+}
+
+/** 触发一次真跑（交互卡点：选题/风控需在网页里点选），事件经 bus 广播给所有 SSE 连接。 */
 async function startRun(personaId: string): Promise<boolean> {
   if (running) return false;
   running = true;
+  pendingGate = null;
   const runId = newRunId();
   try {
     const persona = personaId === 'demo' ? demoPersona : await loadPersona(personaId);
@@ -62,7 +72,7 @@ async function startRun(personaId: string): Promise<boolean> {
       engineCfg: {
         skillTimeoutMs: 120_000,
         runWallclockMs: 600_000,
-        gate: async (_q, options) => options[0] ?? '',
+        gate: interactiveGate,
         onEvent: (e) => bus.emit(e),
       },
     });
@@ -73,6 +83,7 @@ async function startRun(personaId: string): Promise<boolean> {
     bus.emit({ type: 'run.failed', error: e instanceof Error ? e.message : String(e) });
   } finally {
     running = false;
+    pendingGate = null;
   }
   return true;
 }
@@ -120,6 +131,25 @@ const server = createServer(async (req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(await readFile(join(RUNS_DIR, id, 'result.json'), 'utf8'));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/gate') {
+    const choice = url.searchParams.get('choice') ?? '';
+    if (!pendingGate) {
+      res.writeHead(409, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '当前没有待决策的卡点' }));
+      return;
+    }
+    // 只接受合法选项，避免乱传
+    const ok = pendingGate.options.includes(choice);
+    if (ok) {
+      const g = pendingGate;
+      pendingGate = null;
+      g.resolve(choice);
+    }
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(ok ? { ok: true } : { error: '非法选项' }));
     return;
   }
 

@@ -72,6 +72,18 @@ export const hotspotRecommendSkill: Skill<RecommendedHotspot[]> = {
           angle: p.angle,
         });
     }
+    // 兜底：LLM 没选出时，取相关性最高的前 8 条（candidates 已按热搜词+相关性排序），避免精选为空。
+    if (recs.length === 0) {
+      for (const h of candidates.slice(0, 8)) {
+        recs.push({
+          title: h.title,
+          source: h.source,
+          heat: h.heat,
+          reason: '高相关度热点（自动兜底）',
+          angle: '结合账号定位展开',
+        });
+      }
+    }
     ctx.emit(`  精选 ${recs.length} 个高匹配爆款`);
     return recs;
   },

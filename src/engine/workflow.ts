@@ -86,6 +86,12 @@ export class WorkflowEngine {
           typeof stage.gateAfter.options === 'function'
             ? stage.gateAfter.options(bag)
             : stage.gateAfter.options;
+        onEvent?.({
+          type: 'gate.waiting',
+          skill: skill.name,
+          question: stage.gateAfter.question,
+          options: opts,
+        });
         const choice = await this.cfg.gate(stage.gateAfter.question, opts);
         bag[`gate.${skill.name}`] = choice;
         onEvent?.({ type: 'gate', skill: skill.name, question: stage.gateAfter.question, choice });
