@@ -102,10 +102,14 @@ function parseHeat(it: RawItem, rankFallback: number): number {
  * 多源热点聚合：并发拉取多个平台热榜，合并去重，按对本账号的相关性排序（同分按热度）。
  * 单平台失败自动跳过；全部失败时若注入了 fallback 则用之，否则返回空数组。永不抛错、绝不造假数据。
  */
+/** 默认视为「短热搜词」的来源（微博/抖音），排序时优先于知乎/头条等长问题源。 */
+export const DEFAULT_TERM_SOURCES = ['微博热搜', '抖音热点'];
+
 export class MultiHotspotSource implements HotspotSource {
   private readonly platforms: Platform[];
   private readonly extraSources: HotspotSource[];
   private readonly boostTerms: string[];
+  private readonly termSources: Set<string>;
   private readonly fetcher: Fetcher;
   private readonly fallback?: HotspotSource;
 
@@ -115,6 +119,8 @@ export class MultiHotspotSource implements HotspotSource {
       /** 额外热点源（如官方微博 WeiboHotspotSource），与 JSON 平台一起聚合排序。 */
       extraSources?: HotspotSource[];
       boostTerms?: string[];
+      /** 「短热搜词」来源 label：这些来源的条目整体排在长问题源（知乎/头条）之前。 */
+      termSourceLabels?: string[];
       fetcher?: Fetcher;
       fallback?: HotspotSource;
     } = {},
@@ -122,8 +128,14 @@ export class MultiHotspotSource implements HotspotSource {
     this.platforms = opts.platforms ?? DEFAULT_PLATFORMS;
     this.extraSources = opts.extraSources ?? [];
     this.boostTerms = opts.boostTerms ?? DEFAULT_BOOST_TERMS;
+    this.termSources = new Set(opts.termSourceLabels ?? DEFAULT_TERM_SOURCES);
     this.fetcher = opts.fetcher ?? ((u) => fetch(u, { signal: AbortSignal.timeout(8000) }));
     this.fallback = opts.fallback;
+  }
+
+  /** 分层：热搜词源=0（优先），长问题源=1。 */
+  private tier(h: Hotspot): number {
+    return this.termSources.has(h.source) ? 0 : 1;
   }
 
   private async fetchPlatform(p: Platform): Promise<Hotspot[]> {
@@ -164,7 +176,11 @@ export class MultiHotspotSource implements HotspotSource {
       return true;
     });
 
-    deduped.sort((a, b) => this.relevance(b) - this.relevance(a) || b.heat - a.heat);
+    // 排序：热搜词源优先 → 同层按账号相关性 → 再按热度。
+    deduped.sort(
+      (a, b) =>
+        this.tier(a) - this.tier(b) || this.relevance(b) - this.relevance(a) || b.heat - a.heat,
+    );
     return deduped.slice(0, opts.limit ?? deduped.length);
   }
 }

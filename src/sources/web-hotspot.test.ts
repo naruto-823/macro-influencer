@@ -22,19 +22,34 @@ function fakeFetcher(map: Record<string, unknown[]>) {
 }
 
 describe('MultiHotspotSource', () => {
-  it('合并多平台，并把相关性高的排前面（八卦沉底）', async () => {
+  it('热搜词源（微博）整体排在长问题源（知乎）之前', async () => {
     const src = new MultiHotspotSource({
       platforms: PLATFORMS,
       fetcher: fakeFetcher({
-        weibo: [{ title: '某明星塌房上热搜', hot_value: 9_000_000 }],
+        // 微博是热搜词源：即使这条不相关、热度更低，也排在知乎长问题前面
+        weibo: [{ title: '某明星塌房上热搜', hot_value: 9 }],
         zhihu: [{ title: '如何看待字节大模型团队裁员', hot_value_desc: '100 万热度' }],
       }),
     });
     const hits = await src.fetch({ limit: 10 });
     expect(hits).toHaveLength(2);
-    // 含「字节/大模型/裁员」的知乎条目相关性高，排第一，尽管热度数字更低
-    expect(hits[0]?.title).toContain('字节');
-    expect(hits[0]?.source).toBe('知乎热榜');
+    expect(hits[0]?.source).toBe('微博热搜');
+    expect(hits[1]?.source).toBe('知乎热榜');
+  });
+
+  it('同为热搜词源时，账号相关性高的排前面', async () => {
+    const src = new MultiHotspotSource({
+      platforms: PLATFORMS,
+      fetcher: fakeFetcher({
+        // 两条都来自微博（热搜词源）；含「英伟达/芯片」的更相关，排前，尽管热度更低
+        weibo: [
+          { title: '某明星塌房上热搜', hot_value: 9_000_000 },
+          { title: '英伟达芯片再创新高', hot_value: 100 },
+        ],
+      }),
+    });
+    const hits = await src.fetch({ limit: 10 });
+    expect(hits[0]?.title).toContain('英伟达');
   });
 
   it('按标题去重跨平台重复热点', async () => {
