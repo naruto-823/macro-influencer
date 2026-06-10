@@ -176,11 +176,25 @@ export class MultiHotspotSource implements HotspotSource {
       return true;
     });
 
-    // 排序：热搜词源优先 → 同层按账号相关性 → 再按热度。
-    deduped.sort(
+    // limit 作「每个平台各取 top-N」（按各自热度），避免低热度平台被全局名额挤掉。
+    const cap = opts.limit ?? Number.POSITIVE_INFINITY;
+    const bySource = new Map<string, Hotspot[]>();
+    for (const h of deduped) {
+      const arr = bySource.get(h.source) ?? [];
+      arr.push(h);
+      bySource.set(h.source, arr);
+    }
+    const kept: Hotspot[] = [];
+    for (const arr of bySource.values()) {
+      arr.sort((a, b) => b.heat - a.heat);
+      kept.push(...arr.slice(0, cap));
+    }
+
+    // 全局排序：热搜词源优先 → 同层按账号相关性 → 再按热度。
+    kept.sort(
       (a, b) =>
         this.tier(a) - this.tier(b) || this.relevance(b) - this.relevance(a) || b.heat - a.heat,
     );
-    return deduped.slice(0, opts.limit ?? deduped.length);
+    return kept;
   }
 }
