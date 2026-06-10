@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>百万网红 Agent · 生产链路</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --dim:#8b949e;
+          --accent:#a371f7; --ok:#3fb950; --run:#d29922; --fail:#f85149; --blue:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex;
+           align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header h1 small { color:var(--dim); font-weight:400; margin-left:8px; }
+  .spacer { flex:1; }
+  select,button { font:inherit; color:var(--txt); background:var(--panel);
+                  border:1px solid var(--line); border-radius:8px; padding:7px 12px; }
+  button.go { background:var(--accent); border-color:var(--accent); color:#fff; cursor:pointer; font-weight:600; }
+  button.go:disabled { opacity:.5; cursor:not-allowed; }
+  #status { font-size:13px; color:var(--dim); }
+  .wrap { display:grid; grid-template-columns:1fr 360px; gap:0; height:calc(100vh - 61px); }
+  .main { padding:24px; overflow:auto; }
+  .pipe { display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin-bottom:24px; }
+  .node { flex:1; min-width:120px; background:var(--panel); border:1px solid var(--line);
+          border-radius:12px; padding:14px; cursor:pointer; transition:.2s; position:relative; }
+  .node.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .node .ico { font-size:20px; }
+  .node .t { font-weight:600; margin:6px 0 2px; }
+  .node .s { font-size:12px; color:var(--dim); }
+  .node[data-st=running] { border-color:var(--run); }
+  .node[data-st=running] .s { color:var(--run); }
+  .node[data-st=done] { border-color:var(--ok); }
+  .node[data-st=done] .s { color:var(--ok); }
+  .node[data-st=failed] { border-color:var(--fail); }
+  .node[data-st=failed] .s { color:var(--fail); }
+  .arrow { align-self:center; color:var(--dim); padding:0 6px; font-size:18px; }
+  .gate { font-size:11px; color:var(--blue); margin-top:6px; }
+  .banner { padding:12px 16px; border-radius:10px; margin-bottom:20px; display:none; }
+  .banner.ok { display:block; background:rgba(63,185,80,.12); border:1px solid var(--ok); }
+  .banner.fail { display:block; background:rgba(248,81,73,.12); border:1px solid var(--fail); }
+  .detail { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  .detail h2 { font-size:14px; margin:0 0 12px; color:var(--accent); }
+  .detail pre { white-space:pre-wrap; word-break:break-word; margin:0; font:13px/1.7 inherit; }
+  .detail .empty { color:var(--dim); }
+  .chip { display:inline-block; background:#21262d; border:1px solid var(--line); border-radius:999px;
+          padding:2px 10px; font-size:12px; margin:2px 4px 2px 0; }
+  .chip.bad { border-color:var(--fail); color:var(--fail); }
+  .side { border-left:1px solid var(--line); background:#0a0d12; padding:16px; overflow:auto; }
+  .side h3 { font-size:12px; text-transform:uppercase; color:var(--dim); margin:0 0 10px; letter-spacing:.5px; }
+  .log { font:12px/1.6 ui-monospace,Menlo,monospace; }
+  .log div { padding:2px 0; border-bottom:1px solid #161b22; color:var(--dim); }
+  .log .hl { color:var(--txt); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚀 百万网红 Agent <small>生产链路 · 实时</small></h1>
+  <div class="spacer"></div>
+  <select id="persona">
+    <option value="gunzi-daren">棍子大人（真实人设）</option>
+    <option value="demo">小桃职场效率（示例）</option>
+  </select>
+  <button class="go" id="go">▶ 开始跑</button>
+  <span id="status">空闲</span>
+</header>
+
+<div class="wrap">
+  <div class="main">
+    <div class="banner" id="banner"></div>
+    <div class="pipe" id="pipe"></div>
+    <div class="detail" id="detail"><div class="empty">点上方任一阶段查看它的实时产物。</div></div>
+  </div>
+  <div class="side">
+    <h3>事件流</h3>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+const TITLES = {
+  'hotspot.fetch':['①','抓热点'], 'topic.generate':['②','生成选题集'],
+  'content.draft':['③','生成初稿'], 'content.refine':['③','反复打磨'],
+  'risk.review':['④','过风控'], 'asset.assemble':['⑤','组装成品'],
+};
+const pipe = document.getElementById('pipe');
+const detail = document.getElementById('detail');
+const banner = document.getElementById('banner');
+const logEl = document.getElementById('log');
+const goBtn = document.getElementById('go');
+const statusEl = document.getElementById('status');
+let outputs = {}, activeSkill = null;
+
+function log(msg, hl){ const d=document.createElement('div'); if(hl)d.className='hl'; d.textContent=msg; logEl.prepend(d); }
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function buildPipe(stages){
+  pipe.innerHTML=''; outputs={}; activeSkill=null;
+  banner.className='banner'; detail.innerHTML='<div class="empty">流水线运行中…点阶段看产物。</div>';
+  stages.forEach((sk,i)=>{
+    if(i) { const a=document.createElement('div'); a.className='arrow'; a.textContent='→'; pipe.appendChild(a); }
+    const [ico,name]=TITLES[sk]||['•',sk];
+    const n=document.createElement('div'); n.className='node'; n.id='n-'+sk; n.dataset.st='pending';
+    n.innerHTML=`<div class="ico">${ico}</div><div class="t">${name}</div><div class="s">等待</div>`;
+    n.onclick=()=>showDetail(sk);
+    pipe.appendChild(n);
+  });
+}
+function setNode(sk,st,sub){
+  const n=document.getElementById('n-'+sk); if(!n)return;
+  n.dataset.st=st; n.querySelector('.s').textContent=sub||{pending:'等待',running:'运行中…',done:'完成',failed:'失败'}[st];
+  document.querySelectorAll('.node').forEach(x=>x.classList.remove('active'));
+  if(st==='running'){ n.classList.add('active'); activeSkill=sk; if(!outputs[sk]) showDetail(sk); }
+}
+function addGate(sk,choice){
+  const n=document.getElementById('n-'+sk); if(!n)return;
+  let g=n.querySelector('.gate'); if(!g){ g=document.createElement('div'); g.className='gate'; n.appendChild(g); }
+  g.textContent='卡点 → '+choice;
+}
+
+function fmt(sk,o){
+  if(o==null) return '<span class="empty">运行中…</span>';
+  if(sk==='hotspot.fetch'){ const a=o||[]; return a.length? a.map(h=>`<span class="chip">${esc(h.title)} · ${h.heat}🔥</span>`).join('') : '<span class="empty">本次无匹配热点（选题改由人设驱动）</span>'; }
+  if(sk==='topic.generate'){ return (o||[]).map((t,i)=>`<div><b>${i+1}. ${esc(t.title)}</b><br><span style="color:#8b949e">角度：${esc(t.angle)}</span></div>`).join('<br>'); }
+  if(sk==='content.draft'){ return `<b>${esc(o.title)}</b><pre>${esc(o.body)}</pre>`; }
+  if(sk==='content.refine'){ const r=(o.rounds||[]).map(x=>`<span class="chip">第${x.round}轮 ${x.total}分</span>`).join(''); return `${r}<br><br><b>${esc(o.final?.title||'')}</b><pre>${esc(o.final?.body||'')}</pre>`; }
+  if(sk==='risk.review'){ const h=(o.hits||[]).map(x=>`<span class="chip bad">${esc(x.term)}·${esc(x.category)}</span>`).join('')||'<span class="chip">无命中</span>'; return `风险等级：<b>${esc(o.level)}</b><br>命中：${h}<br><br>改写后：<b>${esc(o.rewritten?.title||'')}</b><pre>${esc(o.rewritten?.body||'')}</pre>`; }
+  if(sk==='asset.assemble'){ const t=(o.titles||[]).map((x,i)=>`${i+1}. ${esc(x)}`).join('<br>'); const im=(o.imagePrompts||[]).map((x,i)=>`图${i+1}：${esc(x)}`).join('<br>'); return `<b>标题候选</b><br>${t}<pre>${esc(o.body)}</pre><b>配图分镜</b><br>${im}<br><br><b>发布建议</b><pre>${esc(o.publishTips)}</pre>`; }
+  return `<pre>${esc(JSON.stringify(o,null,2))}</pre>`;
+}
+function showDetail(sk){
+  activeSkill=sk;
+  document.querySelectorAll('.node').forEach(x=>x.classList.toggle('active',x.id==='n-'+sk));
+  const [,name]=TITLES[sk]||['',sk];
+  detail.innerHTML=`<h2>${name}</h2>${fmt(sk,outputs[sk])}`;
+}
+
+const es=new EventSource('/events');
+es.onmessage=ev=>{
+  const e=JSON.parse(ev.data);
+  if(e.type==='run.start'){ statusEl.textContent='运行中'; goBtn.disabled=true; buildPipe(e.stages); log('▶ 开始：'+e.persona,1); }
+  else if(e.type==='stage.start'){ setNode(e.skill,'running'); log('▶ '+e.title,1); }
+  else if(e.type==='stage.progress'){ log('  '+e.msg); }
+  else if(e.type==='stage.done'){ outputs[e.skill]=e.output; setNode(e.skill,'done'); if(activeSkill===e.skill)showDetail(e.skill); }
+  else if(e.type==='gate'){ addGate(e.skill,e.choice); log('卡点「'+e.skill+'」→ '+e.choice,1); }
+  else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); }
+  else if(e.type==='run.failed'){ statusEl.textContent='失败 ❌'; goBtn.disabled=false; if(e.skill)setNode(e.skill,'failed'); banner.className='banner fail'; banner.textContent='❌ 失败'+(e.skill?'（'+e.skill+'）':'')+'：'+e.error; log('❌ '+e.error,1); }
+};
+es.onerror=()=>{ statusEl.textContent='连接断开，刷新重试'; };
+
+goBtn.onclick=async()=>{
+  goBtn.disabled=true; statusEl.textContent='启动中…';
+  const p=document.getElementById('persona').value;
+  const r=await fetch('/run?persona='+encodeURIComponent(p),{method:'POST'});
+  if(!r.ok){ const j=await r.json().catch(()=>({})); statusEl.textContent=j.error||'启动失败'; goBtn.disabled=false; }
+};
+</script>
+</body>
+</html>

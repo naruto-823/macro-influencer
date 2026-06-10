@@ -40,7 +40,7 @@ export function parseArgs(argv: string[]): CliArgs {
 }
 
 /** 从 personas/<id>.ts|.js 动态加载一份 PersonaPack（取 default 或第一个导出）。 */
-async function loadPersona(id: string): Promise<PersonaPack> {
+export async function loadPersona(id: string): Promise<PersonaPack> {
   let lastErr: unknown;
   for (const ext of ['.ts', '.js']) {
     try {

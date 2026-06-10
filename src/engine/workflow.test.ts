@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { PipelineEvent } from './events.js';
 import { SkillRegistry } from './registry.js';
 import type { Skill, SkillContext, Stage } from './types.js';
 import { WorkflowEngine } from './workflow.js';
@@ -34,6 +35,39 @@ describe('WorkflowEngine', () => {
     const bag = await eng.run('r1', [{ skillName: 'a' }, { skillName: 'b' }], ctxBase());
     expect(bag.a).toBe(1);
     expect(bag.b).toBe(2);
+  });
+
+  it('onEvent 按序发出 run.start / stage.start / stage.done / run.failed', async () => {
+    const reg = new SkillRegistry();
+    reg.register(
+      skill('a', async (ctx) => {
+        ctx.emit('干活中');
+        return 1;
+      }),
+    );
+    reg.register(
+      skill('boom', async () => {
+        throw new Error('炸了');
+      }),
+    );
+    const events: PipelineEvent[] = [];
+    const eng = new WorkflowEngine(reg, {
+      skillTimeoutMs: 1000,
+      runWallclockMs: 5000,
+      gate: async () => '',
+      onEvent: (e) => events.push(e),
+    });
+    await expect(
+      eng.run('r9', [{ skillName: 'a' }, { skillName: 'boom' }], ctxBase()),
+    ).rejects.toThrow(/炸了/);
+    const types = events.map((e) => e.type);
+    expect(types[0]).toBe('run.start');
+    expect(types).toContain('stage.start');
+    expect(types).toContain('stage.progress');
+    expect(types).toContain('stage.done');
+    expect(types).toContain('run.failed');
+    // a 先 done，boom 再 failed
+    expect(types.indexOf('stage.done')).toBeLessThan(types.indexOf('run.failed'));
   });
 
   it('gateAfter 调用 gate 并把选择写入 bag[gate.<skill>]', async () => {

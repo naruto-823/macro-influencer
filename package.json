@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "start": "tsx src/cli.ts",
+    "viz": "tsx src/viz/server.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
