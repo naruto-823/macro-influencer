@@ -41,9 +41,9 @@ describe('MultiHotspotSource', () => {
     const src = new MultiHotspotSource({
       platforms: PLATFORMS,
       fetcher: fakeFetcher({
-        // 两条都来自微博（热搜词源）；含「英伟达/芯片」的更相关，排前，尽管热度更低
+        // 两条都来自微博（热搜词源）；含「英伟达/芯片」命中加权词、更相关，排前，尽管热度更低
         weibo: [
-          { title: '某明星塌房上热搜', hot_value: 9_000_000 },
+          { title: '周末去哪玩比较好', hot_value: 9_000_000 },
           { title: '英伟达芯片再创新高', hot_value: 100 },
         ],
       }),
