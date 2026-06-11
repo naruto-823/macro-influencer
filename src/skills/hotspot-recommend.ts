@@ -1,7 +1,14 @@
 import type { Hotspot, RecommendedHotspot, Skill } from '../engine/types.js';
+import { DEFAULT_BOOST_TERMS } from '../sources/web-hotspot.js';
 
 interface RawPicks {
-  picks: Array<{ index: number; reason: string; angle: string }>;
+  picks?: Array<{ index?: number; reason?: string; angle?: string }>;
+}
+
+/** 与账号的相关度：命中加权词的数量（标题+摘要）。 */
+function relevance(h: Hotspot): number {
+  const text = h.title + (h.summary ?? '');
+  return DEFAULT_BOOST_TERMS.reduce((n, t) => (text.includes(t) ? n + 1 : n), 0);
 }
 
 /**
@@ -13,9 +20,11 @@ export const hotspotRecommendSkill: Skill<RecommendedHotspot[]> = {
   title: '🎯 精选推荐',
   async run(ctx) {
     const all = (ctx.bag['hotspot.fetch'] as Hotspot[]) ?? [];
-    // 取排序后前 30 条作为候选（已热搜词+相关性优先），控制 prompt 体量、加快响应、降低代理 524 概率。
-    const candidates = all.slice(0, 30);
-    if (candidates.length === 0) return [];
+    if (all.length === 0) return [];
+    // 候选池按「账号相关性」重排（而非热搜词优先），把科技/财富/职场/人物事件顶上来、娱乐沉底，取 top30。
+    const candidates = [...all]
+      .sort((a, b) => relevance(b) - relevance(a) || b.heat - a.heat)
+      .slice(0, 30);
 
     const { persona } = ctx;
     const list = candidates
@@ -67,10 +76,12 @@ export const hotspotRecommendSkill: Skill<RecommendedHotspot[]> = {
         .join('\n'),
     });
 
+    // 容错：tool schema 非强制，模型偶尔把 picks 返回成非数组；统一兜成数组，按下标回填。
+    const picks = Array.isArray(raw?.picks) ? raw.picks : [];
     const recs: RecommendedHotspot[] = [];
-    for (const p of raw.picks ?? []) {
-      const h = candidates[p.index];
-      if (h)
+    for (const p of picks) {
+      const h = typeof p?.index === 'number' ? candidates[p.index] : undefined;
+      if (h && p?.reason && p?.angle) {
         recs.push({
           title: h.title,
           source: h.source,
@@ -78,16 +89,17 @@ export const hotspotRecommendSkill: Skill<RecommendedHotspot[]> = {
           reason: p.reason,
           angle: p.angle,
         });
+      }
     }
-    // 兜底：LLM 没选出时，取相关性最高的前 8 条（candidates 已按热搜词+相关性排序），避免精选为空。
+    // 兜底：LLM 没给出有效选择时，从「相关性已排序」的候选里取最相关的几条（candidates 已按相关性排序，故是真·对味的）。
     if (recs.length === 0) {
-      for (const h of candidates.slice(0, 8)) {
+      for (const h of candidates.filter((c) => relevance(c) > 0).slice(0, 8)) {
         recs.push({
           title: h.title,
           source: h.source,
           heat: h.heat,
-          reason: '高相关度热点（自动兜底）',
-          angle: '结合账号定位展开',
+          reason: '与账号方向高度契合，建议优先蹭',
+          angle: '可做：人物深扒 / 事件剖析 / 人性锐评 之一',
         });
       }
     }
