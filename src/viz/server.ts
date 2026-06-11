@@ -70,8 +70,10 @@ async function startRun(personaId: string): Promise<boolean> {
       persona,
       hotspot: new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
       engineCfg: {
-        skillTimeoutMs: 120_000,
-        runWallclockMs: 600_000,
+        // Opus 经 fox 代理单步可能 1-3 分钟（含 524/429 重试退避）；给足超时，避免成功前被掐。
+        skillTimeoutMs: 300_000,
+        // 含人工卡点等待时间，放宽到 30 分钟。
+        runWallclockMs: 1_800_000,
         gate: interactiveGate,
         onEvent: (e) => bus.emit(e),
       },

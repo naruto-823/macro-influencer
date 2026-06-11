@@ -13,8 +13,8 @@ export const hotspotRecommendSkill: Skill<RecommendedHotspot[]> = {
   title: '🎯 精选推荐',
   async run(ctx) {
     const all = (ctx.bag['hotspot.fetch'] as Hotspot[]) ?? [];
-    // 取排序后前 60 条作为候选（已热搜词+相关性优先），控制 prompt 体量。
-    const candidates = all.slice(0, 60);
+    // 取排序后前 30 条作为候选（已热搜词+相关性优先），控制 prompt 体量、加快响应、降低代理 524 概率。
+    const candidates = all.slice(0, 30);
     if (candidates.length === 0) return [];
 
     const { persona } = ctx;

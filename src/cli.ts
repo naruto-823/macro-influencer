@@ -94,8 +94,8 @@ async function main(): Promise<void> {
     persona,
     hotspot: new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
     engineCfg: {
-      skillTimeoutMs: 120_000,
-      runWallclockMs: 600_000,
+      skillTimeoutMs: 300_000,
+      runWallclockMs: 1_800_000,
       gate: args.auto ? autoGate : terminalGate,
     },
   });
