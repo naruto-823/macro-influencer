@@ -121,7 +121,7 @@ export class ClaudeLlmClient implements LlmClient {
     return traceLlm('complete', { model: this.model, inChars: opts.prompt.length }, async () => {
       const res = await this.client.messages.create({
         model: this.model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: opts.system,
         messages: [{ role: 'user', content: opts.prompt }],
       });
@@ -141,7 +141,7 @@ export class ClaudeLlmClient implements LlmClient {
   async completeJson<T>(opts: LlmCompleteOpts): Promise<T> {
     const req = {
       model: this.model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: opts.system,
       messages: [{ role: 'user' as const, content: opts.prompt }],
       tools: [
@@ -168,7 +168,11 @@ export class ClaudeLlmClient implements LlmClient {
           lastTokens = res.usage.output_tokens;
           const tool = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
           if (tool) {
-            return { result: tool.input as T, outTokens: lastTokens, extra: { via: 'tool_use' } };
+            return {
+              result: tool.input as T,
+              outTokens: lastTokens,
+              extra: { via: 'tool_use', stop: res.stop_reason },
+            };
           }
           lastText = res.content
             .filter((b): b is Anthropic.TextBlock => b.type === 'text')
