@@ -52,6 +52,9 @@ async function listRuns(): Promise<Array<{ id: string; title: string; done: bool
 // 交互卡点：到卡点时 gate() 挂起、等前端 POST /gate 才继续（不自动往下跑，省 token）。
 let pendingGate: { options: string[]; resolve: (choice: string) => void } | null = null;
 
+// 当前 run 的事件缓冲：新 SSE 连接进来时重放，让刷新/切回的页面能重建实时状态（含未答的卡点按钮）。
+let currentEvents: Parameters<typeof bus.emit>[0][] = [];
+
 function interactiveGate(_question: string, options: string[]): Promise<string> {
   return new Promise((resolve) => {
     pendingGate = { options, resolve };
@@ -68,6 +71,8 @@ async function startRun(personaId: string): Promise<boolean> {
   // 这样即便后面失败、中断、或服务重启，已经产出的（选题/初稿/打磨/成品）也都在历史里、刷新可见。
   const liveBag: Record<string, unknown> = {};
   const onEvent = (e: Parameters<typeof bus.emit>[0]) => {
+    if (e.type === 'run.start') currentEvents = [];
+    currentEvents.push(e);
     bus.emit(e);
     if (e.type === 'stage.done') {
       liveBag[e.skill] = e.output;
@@ -124,6 +129,8 @@ const server = createServer(async (req, res) => {
       Connection: 'keep-alive',
     });
     res.write(': connected\n\n');
+    // 重放当前 run 已发生的事件，让刚连上的页面重建出实时状态（含未答的卡点）。
+    for (const e of currentEvents) res.write(`data: ${JSON.stringify(e)}\n\n`);
     const off = bus.on((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
     const ping = setInterval(() => res.write(': ping\n\n'), 15_000);
     req.on('close', () => {

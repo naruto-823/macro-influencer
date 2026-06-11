@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1180" viewBox="0 0 1560 1180" font-family="-apple-system,'PingFang SC','Microsoft YaHei',Segoe UI,sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+    </marker>
+    <marker id="arrP" markerWidth="11" markerHeight="11" refX="8.5" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrB" markerWidth="11" markerHeight="11" refX="8.5" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrG" markerWidth="11" markerHeight="11" refX="8.5" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#16a34a"/>
+    </marker>
+    <style>
+      .lbl{font-size:13px;fill:#475569}
+      .layer{font-size:15px;font-weight:700;fill:#0f172a}
+      .layerSub{font-size:11px;fill:#64748b}
+      .box-t{font-size:14px;font-weight:600;fill:#0f172a}
+      .box-s{font-size:11px;fill:#64748b}
+      .stage-t{font-size:13.5px;font-weight:700;fill:#0f172a}
+      .stage-s{font-size:10.5px;fill:#6b21a8}
+      .flow{font-size:11px;fill:#475569}
+      .flowB{font-size:11px;font-weight:600;fill:#2563eb}
+    </style>
+  </defs>
+
+  <rect width="1560" height="1180" fill="#f8fafc"/>
+  <text x="40" y="46" font-size="26" font-weight="800" fill="#0f172a">百万网红 Agent · 系统架构</text>
+  <text x="40" y="70" font-size="13" fill="#64748b">编排式内容生产流水线（借鉴 ug-agents）：账号人设 + 实时热点 → 选题 → 成稿 → 风控 → 可发布作品。TypeScript / pnpm / 单包工程。</text>
+
+  <!-- ===================== L1 入口层 ===================== -->
+  <rect x="40" y="92" width="1480" height="96" rx="12" fill="#eef2ff" stroke="#c7d2fe"/>
+  <text x="58" y="118" class="layer">① 入口层 Entrypoints</text>
+  <text x="58" y="136" class="layerSub">CLI / Web</text>
+
+  <rect x="300" y="108" width="300" height="64" rx="10" fill="#fff" stroke="#818cf8"/>
+  <text x="320" y="134" class="box-t">CLI ·  pnpm start</text>
+  <text x="320" y="155" class="box-s">cli.ts ·  --persona / --auto ·  终端卡点</text>
+
+  <rect x="640" y="108" width="540" height="64" rx="10" fill="#fff" stroke="#818cf8"/>
+  <text x="660" y="130" class="box-t">Web 可视化服务 ·  pnpm viz</text>
+  <text x="660" y="150" class="box-s">viz/server.ts ·  HTTP + SSE ·  /events /run /gate /runs ·  index.html 实时看板</text>
+
+  <!-- ===================== L2 编排层 ===================== -->
+  <rect x="40" y="206" width="1480" height="120" rx="12" fill="#ecfeff" stroke="#a5f3fc"/>
+  <text x="58" y="232" class="layer">② 编排层 Orchestration Engine</text>
+  <text x="58" y="250" class="layerSub">run.ts</text>
+
+  <rect x="300" y="226" width="360" height="84" rx="10" fill="#fff" stroke="#22d3ee"/>
+  <text x="320" y="252" class="box-t">WorkflowEngine</text>
+  <text x="320" y="272" class="box-s">engine/workflow.ts</text>
+  <text x="320" y="290" class="box-s">顺序跑 Stage[] ·  卡点 gate ·  haltOn ·  超时</text>
+
+  <rect x="690" y="226" width="230" height="84" rx="10" fill="#fff" stroke="#22d3ee"/>
+  <text x="710" y="252" class="box-t">SkillRegistry</text>
+  <text x="710" y="272" class="box-s">engine/registry.ts</text>
+  <text x="710" y="290" class="box-s">注册 / 取 Skill</text>
+
+  <rect x="950" y="226" width="230" height="84" rx="10" fill="#fff" stroke="#22d3ee"/>
+  <text x="970" y="252" class="box-t">EventBus</text>
+  <text x="970" y="272" class="box-s">engine/events.ts</text>
+  <text x="970" y="290" class="box-s">PipelineEvent 广播</text>
+
+  <rect x="1210" y="226" width="290" height="84" rx="10" fill="#fff" stroke="#22d3ee"/>
+  <text x="1230" y="252" class="box-t">黑板 bag（共享状态）</text>
+  <text x="1230" y="272" class="box-s">Record&lt;string, output&gt;</text>
+  <text x="1230" y="290" class="box-s">Skill 间传数据 ·  按 skill 名存产物</text>
+
+  <!-- ===================== L3 技能流水线 ===================== -->
+  <rect x="40" y="344" width="1480" height="208" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
+  <text x="58" y="370" class="layer">③ 技能流水线 Skill Pipeline（7 步 · 2 个人工卡点）</text>
+  <text x="58" y="388" class="layerSub">src/skills/* ·  每个 Skill 干一件事、产一个产物、可独立测</text>
+
+  <!-- stages row -->
+  <g>
+    <!-- 1 -->
+    <rect x="58" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#a78bfa"/>
+    <text x="72" y="430" class="stage-t">① 抓热点</text>
+    <text x="72" y="450" class="stage-s">hotspot.fetch</text>
+    <text x="72" y="468" class="box-s">多平台聚合 40/平台</text>
+    <text x="72" y="484" class="box-s">→ bag.hotspot.fetch</text>
+    <!-- 2 recommend -->
+    <rect x="256" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#a78bfa"/>
+    <text x="270" y="430" class="stage-t">🎯 精选推荐</text>
+    <text x="270" y="450" class="stage-s">hotspot.recommend</text>
+    <text x="270" y="468" class="box-s">按相关性挑爆款</text>
+    <text x="270" y="484" class="box-s">理由 + 打法角度</text>
+    <!-- 3 topic + gate -->
+    <rect x="454" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="468" y="430" class="stage-t">② 生成选题集</text>
+    <text x="468" y="450" class="stage-s">topic.generate</text>
+    <text x="468" y="468" class="box-s">出 5 选题 + 角度</text>
+    <text x="468" y="484" fill="#b91c1c" font-size="10.5" font-weight="700">⏸ 卡点：选 1 个</text>
+    <!-- 4 draft -->
+    <rect x="652" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#a78bfa"/>
+    <text x="666" y="430" class="stage-t">③ 生成初稿</text>
+    <text x="666" y="450" class="stage-s">content.draft</text>
+    <text x="666" y="468" class="box-s">对标金标范文</text>
+    <text x="666" y="484" class="box-s">沉浸式叙事长文</text>
+    <!-- 5 refine -->
+    <rect x="850" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#a78bfa"/>
+    <text x="864" y="430" class="stage-t">③ 反复打磨</text>
+    <text x="864" y="450" class="stage-s">content.refine</text>
+    <text x="864" y="468" class="box-s">严苛主编·补深度</text>
+    <text x="864" y="484" class="box-s">打分循环 N 轮</text>
+    <!-- 6 risk + gate -->
+    <rect x="1048" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#7c3aed" stroke-width="2"/>
+    <text x="1062" y="430" class="stage-t">④ 过风控</text>
+    <text x="1062" y="450" class="stage-s">risk.review</text>
+    <text x="1062" y="468" class="box-s">敏感词+LLM改写</text>
+    <text x="1062" y="484" fill="#b91c1c" font-size="10.5" font-weight="700">⏸ 卡点：通过/打回</text>
+    <!-- 7 asset -->
+    <rect x="1246" y="406" width="178" height="92" rx="10" fill="#fff" stroke="#a78bfa"/>
+    <text x="1260" y="430" class="stage-t">⑤ 组装成品</text>
+    <text x="1260" y="450" class="stage-s">asset.assemble</text>
+    <text x="1260" y="468" class="box-s">标题候选/配图</text>
+    <text x="1260" y="484" class="box-s">分镜/发布建议</text>
+
+    <!-- flow arrows between stages -->
+    <line x1="236" y1="452" x2="254" y2="452" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrP)"/>
+    <line x1="434" y1="452" x2="452" y2="452" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrP)"/>
+    <line x1="632" y1="452" x2="650" y2="452" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrP)"/>
+    <line x1="830" y1="452" x2="848" y2="452" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrP)"/>
+    <line x1="1028" y1="452" x2="1046" y2="452" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrP)"/>
+    <line x1="1226" y1="452" x2="1244" y2="452" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrP)"/>
+  </g>
+  <!-- 落盘出口 -->
+  <text x="1246" y="524" class="flow">每步完成增量落盘 →</text>
+
+  <!-- ===================== L4 能力/基础设施 ===================== -->
+  <rect x="40" y="570" width="1480" height="232" rx="12" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <text x="58" y="596" class="layer">④ 能力 / 基础设施层 Capabilities &amp; Infrastructure</text>
+  <text x="58" y="614" class="layerSub">被各 Skill 通过 SkillContext 调用（依赖注入 · 可替换 · 可测）</text>
+
+  <!-- LLM -->
+  <rect x="58" y="632" width="340" height="150" rx="10" fill="#fff" stroke="#34d399"/>
+  <text x="74" y="658" class="box-t">LLM 能力</text>
+  <text x="74" y="680" class="box-s">llm/client.ts ·  ClaudeLlmClient</text>
+  <text x="74" y="699" class="box-s">tool-use 结构化输出 ·  schema 约束</text>
+  <text x="74" y="718" class="box-s">maxRetries=6 ·  max_tokens=8192</text>
+  <text x="74" y="737" class="box-s">llm/trace.ts ·  OTel 风格链路追踪</text>
+  <text x="74" y="756" class="box-s">  → logs/llm-trace.jsonl（每调用/每HTTP）</text>
+  <text x="74" y="774" class="box-s">llm/fake.ts ·  测试桩</text>
+
+  <!-- Hotspot sources -->
+  <rect x="418" y="632" width="360" height="150" rx="10" fill="#fff" stroke="#34d399"/>
+  <text x="434" y="658" class="box-t">热点数据源（适配器 · 接口隔离）</text>
+  <text x="434" y="680" class="box-s">cached-hotspot.ts ·  磁盘缓存 TTL 2h</text>
+  <text x="434" y="699" class="box-s">  ↓ 包裹</text>
+  <text x="434" y="718" class="box-s">web-hotspot.ts ·  MultiHotspotSource</text>
+  <text x="434" y="737" class="box-s">  聚合 知乎/抖音/头条 + 相关性排序</text>
+  <text x="434" y="756" class="box-s">weibo-hotspot.ts ·  官方微博（cookie）</text>
+  <text x="434" y="774" class="box-s">hotspot-source.ts ·  HotspotSource 契约</text>
+
+  <!-- Persona -->
+  <rect x="798" y="632" width="350" height="150" rx="10" fill="#fff" stroke="#34d399"/>
+  <text x="814" y="658" class="box-t">人设 Persona</text>
+  <text x="814" y="680" class="box-s">persona/persona-pack.ts ·  definePersona</text>
+  <text x="814" y="699" class="box-s">personas/gunzi-daren.ts （真实·gitignore）</text>
+  <text x="814" y="718" class="box-s">  定位 / styleGuide / 选题方向 / 禁区</text>
+  <text x="814" y="737" class="box-s">personas/gold-samples.ts</text>
+  <text x="814" y="756" class="box-s">  金标范文（查理芒格 / 孙宇晨）</text>
+  <text x="814" y="774" class="box-s">  → 喂给 draft/refine 对标质量</text>
+
+  <!-- Guardrails + Output -->
+  <rect x="1168" y="632" width="256" height="150" rx="10" fill="#fff" stroke="#34d399"/>
+  <text x="1184" y="658" class="box-t">风控 &amp; 落盘</text>
+  <text x="1184" y="680" class="box-s">guardrails/sensitive-words.ts</text>
+  <text x="1184" y="699" class="box-s">guardrails/xhs-rules.ts</text>
+  <text x="1184" y="718" class="box-s">  敏感词库 + 风险分级</text>
+  <text x="1184" y="744" class="box-s">output/persist.ts</text>
+  <text x="1184" y="763" class="box-s">  runs/&lt;id&gt;/ result.json + README</text>
+
+  <!-- ===================== L5 外部系统 ===================== -->
+  <rect x="40" y="820" width="1480" height="96" rx="12" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="58" y="846" class="layer">⑤ 外部系统 External Systems</text>
+  <text x="58" y="864" class="layerSub">真实数据 / 模型</text>
+
+  <rect x="300" y="836" width="250" height="64" rx="10" fill="#fff" stroke="#f87171"/>
+  <text x="316" y="862" class="box-t">fox 代理 → Claude Opus</text>
+  <text x="316" y="883" class="box-s">code.newcli.com</text>
+
+  <rect x="570" y="836" width="250" height="64" rx="10" fill="#fff" stroke="#f87171"/>
+  <text x="586" y="862" class="box-t">60s 热榜聚合</text>
+  <text x="586" y="883" class="box-s">知乎 / 抖音 / 头条</text>
+
+  <rect x="840" y="836" width="250" height="64" rx="10" fill="#fff" stroke="#f87171"/>
+  <text x="856" y="862" class="box-t">微博官方热搜</text>
+  <text x="856" y="883" class="box-s">s.weibo.com（cookie）</text>
+
+  <rect x="1110" y="836" width="290" height="64" rx="10" fill="#fff" stroke="#f87171"/>
+  <text x="1126" y="862" class="box-t">小红书 web API</text>
+  <text x="1126" y="883" class="box-s">抓账号数据/笔记（带 token）</text>
+
+  <!-- ===================== 纵向连线 跨层 ===================== -->
+  <!-- entry -> engine -->
+  <line x1="780" y1="172" x2="480" y2="224" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="600" y="200" class="flow">触发 runPipeline</text>
+  <!-- engine -> pipeline (registry/engine drives stages) -->
+  <line x1="480" y1="310" x2="300" y2="404" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="320" y="356" class="flow">依次执行 Stage</text>
+  <!-- pipeline bag <-> engine bag -->
+  <line x1="1355" y1="404" x2="1355" y2="312" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrB)"/>
+  <text x="1370" y="360" class="flowB">读/写 bag</text>
+
+  <!-- skills -> infra (use capabilities) -->
+  <line x1="228" y1="500" x2="228" y2="630" stroke="#16a34a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrG)"/>
+  <line x1="560" y1="500" x2="560" y2="630" stroke="#16a34a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrG)"/>
+  <line x1="940" y1="500" x2="940" y2="630" stroke="#16a34a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrG)"/>
+  <line x1="1290" y1="500" x2="1290" y2="630" stroke="#16a34a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrG)"/>
+  <text x="950" y="566" class="flow" fill="#16a34a">Skill 调用能力（LLM / 数据源 / 人设 / 风控 / 落盘）</text>
+
+  <!-- infra -> external -->
+  <line x1="228" y1="782" x2="420" y2="836" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="598" y1="782" x2="690" y2="836" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="598" y1="782" x2="950" y2="836" stroke="#475569" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <!-- ===================== 右侧 事件流/可视化/历史 ===================== -->
+  <rect x="40" y="938" width="1480" height="206" rx="12" fill="#fffbeb" stroke="#fde68a"/>
+  <text x="58" y="964" class="layer">⑥ 可观测 &amp; 实时可视化 / 历史 Observability</text>
+
+  <rect x="58" y="982" width="300" height="120" rx="10" fill="#fff" stroke="#f59e0b"/>
+  <text x="74" y="1008" class="box-t">事件流 PipelineEvent</text>
+  <text x="74" y="1030" class="box-s">run.start / stage.start / progress</text>
+  <text x="74" y="1049" class="box-s">stage.done / gate.waiting / gate</text>
+  <text x="74" y="1068" class="box-s">run.done / run.failed</text>
+  <text x="74" y="1090" class="box-s">引擎 onEvent → EventBus</text>
+
+  <rect x="430" y="982" width="300" height="120" rx="10" fill="#fff" stroke="#f59e0b"/>
+  <text x="446" y="1008" class="box-t">SSE 推送</text>
+  <text x="446" y="1030" class="box-s">GET /events（长连接）</text>
+  <text x="446" y="1049" class="box-s">EventBus → 所有连接</text>
+  <text x="446" y="1072" class="box-s">POST /run 触发 · POST /gate 卡点</text>
+
+  <rect x="802" y="982" width="300" height="120" rx="10" fill="#fff" stroke="#f59e0b"/>
+  <text x="818" y="1008" class="box-t">前端实时看板</text>
+  <text x="818" y="1030" class="box-s">viz/index.html（纯 JS）</text>
+  <text x="818" y="1049" class="box-s">7 节点点亮 · 各阶段产物</text>
+  <text x="818" y="1072" class="box-s">① 面板含平台榜单 + 🎯精选</text>
+
+  <rect x="1174" y="982" width="250" height="120" rx="10" fill="#fff" stroke="#f59e0b"/>
+  <text x="1190" y="1008" class="box-t">历史回看</text>
+  <text x="1190" y="1030" class="box-s">runs/ ← 增量落盘</text>
+  <text x="1190" y="1049" class="box-s">GET /runs · /runs/:id</text>
+  <text x="1190" y="1072" class="box-s">列表 + 点开重放</text>
+
+  <line x1="358" y1="1042" x2="428" y2="1042" stroke="#f59e0b" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="730" y1="1042" x2="800" y2="1042" stroke="#f59e0b" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="1102" y1="1042" x2="1172" y2="1042" stroke="#f59e0b" stroke-width="1.8" marker-end="url(#arr)"/>
+
+  <text x="40" y="1166" font-size="11" fill="#94a3b8">数据流：热点→精选→选题(卡点)→初稿→打磨→风控(卡点)→成品→落盘  ｜  紫=流水线  蓝虚=黑板  绿虚=能力调用  橙=事件/可视化</text>
+</svg>
