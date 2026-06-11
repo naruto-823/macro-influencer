@@ -37,15 +37,17 @@ describe('content.refine', () => {
     const llm = new FakeLlmClient([round(85, 't1')]);
     const res = await contentRefineSkill.run(ctx(llm, 80));
     expect(res.rounds).toHaveLength(1);
-    expect(res.final.title).toBe('t1');
+    // 原稿(t0)已达标 → 保留原稿，不采纳改写版(t1)，避免越改越差。
+    expect(res.final.title).toBe('t0');
     expect(res.rounds[0]?.total).toBe(85);
   });
 
-  it('未达标则继续打磨，直到达标', async () => {
+  it('未达标则采纳改写继续，直到某稿达标即保留该稿', async () => {
     const llm = new FakeLlmClient([round(70, 't1'), round(90, 't2')]);
     const res = await contentRefineSkill.run(ctx(llm, 80));
     expect(res.rounds).toHaveLength(2);
-    expect(res.final.title).toBe('t2');
+    // 第1轮 t0 未达标→采纳 t1；第2轮 t1 达标→保留 t1（不再用 t2 覆盖）。
+    expect(res.final.title).toBe('t1');
   });
 
   it('始终不达标则到 maxRounds 停，取最后一稿', async () => {

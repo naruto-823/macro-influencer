@@ -68,18 +68,21 @@ export const contentRefineSkill: Skill<RefineResult> = {
           '请按顺序做三件事：',
           '1) critique：先具体指出这一稿里的 AI 味问题——点名是哪些句子/词（如哪里用了机械过渡词、哪句是空泛套话、哪段缺具体细节、哪里太工整），不要泛泛而谈。',
           '2) scores：按维度打分，AI 味越重分越低。',
-          '3) revised：据上面的诊断逐句改写——删掉机械过渡词与空泛套话，把抽象的话换成具体场景/数字/真实细节，打破对称结构与同构句式，强化第一人称的立场与锋芒，长短句交错、口语化。保持原意、信息与核心观点不变，只改“读起来的味道”和质感。',
+          '3) revised：外科手术式修改——只动你在 critique 里点名的有问题的地方，其余一字不改。保留所有已经好的东西（生动场景、金句、口吻、具体细节、真实例子）。把机械过渡词和空泛套话删掉/换成具体的说法，仅此而已。',
+          '',
+          '【最重要的铁律】revised 的质量必须 ≥ 原稿，绝不能更差。如果原稿已经很好、你改不出明显更好的版本，就让 revised 完全等于原稿原文——宁可一字不改，也绝不能为了“有改动”而把好句子改差、把具体改抽象、把流畅改生硬。',
           '',
           '输出 JSON：',
-          '{"scores":{"hook":0,"emotion":0,"density":0,"style":0,"structure":0},"total":0,"critique":"具体诊断","revised":{"title":"改写后标题","body":"改写后正文"}}',
-          'total 为五项综合（0-100）。revised 必须与原稿有可见差别（是实打实的去 AI 味打磨，不是换几个词的微调），但绝不能偏离原意或丢信息。',
+          '{"scores":{"hook":0,"emotion":0,"density":0,"style":0,"structure":0},"total":0,"critique":"具体诊断","revised":{"title":"标题","body":"正文"}}',
+          'total 为五项综合（0-100）。',
         ].join('\n'),
       });
       rounds.push({ round: i, scores: raw.scores, total: raw.total, critique: raw.critique });
-      // 仅当改写稿完整（标题+正文都非空）才采纳，避免某轮退化稿污染下游。
-      if (raw.revised?.title?.trim() && raw.revised?.body?.trim()) current = raw.revised;
       ctx.emit(`  第${i}轮打磨：${raw.total} 分`);
+      // 已达标 → 当前稿已经够好，直接保留，绝不用改写版覆盖（避免越改越差）。
       if (raw.total >= threshold) break;
+      // 未达标 → 采纳改写继续打磨（仅当改写稿完整）。
+      if (raw.revised?.title?.trim() && raw.revised?.body?.trim()) current = raw.revised;
     }
 
     return { final: current, rounds };
