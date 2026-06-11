@@ -105,7 +105,8 @@ export class ClaudeLlmClient implements LlmClient {
     this.model = opts.model ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
     const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
     const baseURL = opts.baseURL ?? process.env.ANTHROPIC_BASE_URL;
-    this.client = new Anthropic({ apiKey, baseURL: baseURL || undefined });
+    // maxRetries：SDK 对 429/5xx 自动退避重试并尊重 retry-after，应对 fox 代理限流（默认 2，调高更稳）。
+    this.client = new Anthropic({ apiKey, baseURL: baseURL || undefined, maxRetries: 6 });
   }
 
   async complete(opts: LlmCompleteOpts): Promise<string> {
