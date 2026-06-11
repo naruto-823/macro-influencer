@@ -240,7 +240,7 @@ es.onmessage=ev=>{
   if(e.type==='run.start'){ statusEl.textContent='运行中'; goBtn.disabled=true; clearGate(); buildPipe(e.stages); log('▶ 开始：'+e.persona,1); }
   else if(e.type==='stage.start'){ setNode(e.skill,'running'); log('▶ '+e.title,1); }
   else if(e.type==='stage.progress'){ if(!e.msg.startsWith('▶')) log('  '+e.msg); }
-  else if(e.type==='stage.done'){ outputs[e.skill]=e.output; setNode(e.skill,'done'); if(activeSkill===e.skill)showDetail(e.skill); if(e.skill==='hotspot.recommend'&&activeSkill==='hotspot.fetch')showDetail('hotspot.fetch'); }
+  else if(e.type==='stage.done'){ outputs[e.skill]=e.output; setNode(e.skill,'done'); if(activeSkill===e.skill)showDetail(e.skill); if(e.skill==='hotspot.recommend'&&activeSkill==='hotspot.fetch')showDetail('hotspot.fetch'); loadRuns(); }
   else if(e.type==='gate.waiting'){ statusEl.textContent='⏸ 等待你选择'; showGate(e.skill,e.question,e.options); if(e.skill==='topic.generate')showDetail('topic.generate'); log('⏸ 卡点：'+e.question,1); }
   else if(e.type==='gate'){ clearGate(); addGate(e.skill,e.choice); log('卡点「'+e.skill+'」→ '+e.choice,1); }
   else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); loadRuns(); }
