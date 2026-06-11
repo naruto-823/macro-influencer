@@ -8,6 +8,7 @@ import { ClaudeLlmClient } from '../llm/client.js';
 import { persistRun } from '../output/persist.js';
 import { demoPersona } from '../persona/examples/demo.js';
 import { runPipeline } from '../run.js';
+import { CachedHotspotSource } from '../sources/cached-hotspot.js';
 import { MultiHotspotSource } from '../sources/web-hotspot.js';
 import { WeiboHotspotSource } from '../sources/weibo-hotspot.js';
 
@@ -68,7 +69,10 @@ async function startRun(personaId: string): Promise<boolean> {
     const bag = await runPipeline(runId, {
       llm: new ClaudeLlmClient(),
       persona,
-      hotspot: new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
+      hotspot: new CachedHotspotSource(
+        new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
+        { ttlMs: 7_200_000, file: resolve('cache', 'hotspots.json') },
+      ),
       engineCfg: {
         // Opus 经 fox 代理单步可能 1-3 分钟（含 524/429 重试退避）；给足超时，避免成功前被掐。
         skillTimeoutMs: 300_000,

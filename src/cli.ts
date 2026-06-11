@@ -6,6 +6,7 @@ import { persistRun } from './output/persist.js';
 import { demoPersona } from './persona/examples/demo.js';
 import type { PersonaPack } from './persona/persona-pack.js';
 import { runPipeline } from './run.js';
+import { CachedHotspotSource } from './sources/cached-hotspot.js';
 import { MultiHotspotSource } from './sources/web-hotspot.js';
 import { WeiboHotspotSource } from './sources/weibo-hotspot.js';
 
@@ -92,7 +93,10 @@ async function main(): Promise<void> {
   const bag = await runPipeline(runId, {
     llm: new ClaudeLlmClient(),
     persona,
-    hotspot: new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
+    hotspot: new CachedHotspotSource(
+      new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
+      { ttlMs: 7_200_000, file: resolve('cache', 'hotspots.json') },
+    ),
     engineCfg: {
       skillTimeoutMs: 300_000,
       runWallclockMs: 1_800_000,

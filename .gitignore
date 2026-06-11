@@ -6,3 +6,4 @@ personas
 runs
 *.tsbuildinfo
 logs
+cache
