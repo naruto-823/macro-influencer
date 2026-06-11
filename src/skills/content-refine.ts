@@ -7,8 +7,18 @@ interface RawRound {
   revised: Draft;
 }
 
-const DIMENSIONS =
-  '钩子强度(hook：开篇是否用具体场景/反差把人拽住) / 情绪共鸣(emotion：有没有人味、情绪、能否共鸣转发) / 叙事与金句(density：是否沉浸式叙事+具体细节+金句密集，而非空泛说教或干巴列表) / 风格契合(style：与样本文风/口吻一致度) / 结构节奏(structure：钩子→展开→反转→金句收尾的节奏)，每项 0-100。';
+const DIMENSIONS = [
+  '开篇钩子(hook：是否用具体场景/反差/悬念，一句话把人拽住)',
+  '人味真诚(emotion：第一人称、有立场有锋芒有情绪，不油不说教不端着)',
+  '具体质感(density：有具体场景/数字/真实例子/细节，反空泛、反“正确的废话”)',
+  '去AI味(style：是否消灭了机械过渡词[首先/其次/然而/总之/综上]、空泛套话[“在这个XX的时代”“不仅…而且”“让我们”]、堆砌成语、工整到假的排比对仗)',
+  '句式节奏(structure：长短句交错、敢断句、不连续三段同构、标点口语化)',
+  '——每项 0-100，AI 味越重扣得越狠。',
+].join(' / ');
+
+/** AI 味黑名单：打磨时要专门揪出并清除。 */
+const AI_TELLS =
+  '机械过渡词（首先/其次/再者/然而/总之/总的来说/综上所述/值得一提的是）、空泛套话（在这个XX的时代/不仅…而且/让我们一起/随着…的发展）、成语堆砌、每段同一种句式与长度、过于工整的排比对仗、缺具体细节的“正确的废话”、第三人称客观脸、markdown 标题(#)与列表 1.2.3.、刻意 emoji 凑数。';
 
 export const contentRefineSkill: Skill<RefineResult> = {
   name: 'content.refine',
@@ -46,17 +56,23 @@ export const contentRefineSkill: Skill<RefineResult> = {
           required: ['scores', 'total', 'critique', 'revised'],
         },
         system:
-          '你是严苛的小红书爆款评审兼改写专家。标准是「沉浸式叙事长文」：有钩子、有具体场景细节、金句密集、对读者喊话、把方法论揉进故事。凡是写成技术博客/说明文、干巴罗列 1.2.3.、带代码块或 markdown 标题、说教注水的，一律重扣分。先按维度打分给评语，再据此把它改写成更接近这个标准的版本。',
+          '你是一位资深文字编辑兼作家，专治“AI 味”。你的任务不是重写内容、不是改观点，而是逐句打磨：把读起来像 AI 写的地方，改成像真人随口讲出来的。具体场景、真实细节、第一人称的立场与锋芒、长短句的节奏，是你的武器；机械过渡词、空泛套话、堆砌成语、工整到假的对仗，是你要消灭的敌人。',
         prompt: [
-          `内容风格指南（含质量铁律）：${ctx.persona.styleGuide}`,
+          `账号风格指南：${ctx.persona.styleGuide}`,
           `评分维度：${DIMENSIONS}`,
+          `必须揪出并清除的 AI 味黑名单：${AI_TELLS}`,
           '',
           `当前标题：${current.title}`,
           `当前正文：\n${current.body}`,
           '',
-          '请输出 JSON：',
-          '{"scores":{"hook":0,"emotion":0,"density":0,"style":0,"structure":0},"total":0,"critique":"改进意见","revised":{"title":"改写后标题","body":"改写后正文"}}',
-          'total 为五项综合（0-100）。revised 必须是据评语大幅改进后的更优版本：把列表改写成叙事、补具体细节与金句、删掉代码块和说教废话。',
+          '请按顺序做三件事：',
+          '1) critique：先具体指出这一稿里的 AI 味问题——点名是哪些句子/词（如哪里用了机械过渡词、哪句是空泛套话、哪段缺具体细节、哪里太工整），不要泛泛而谈。',
+          '2) scores：按维度打分，AI 味越重分越低。',
+          '3) revised：据上面的诊断逐句改写——删掉机械过渡词与空泛套话，把抽象的话换成具体场景/数字/真实细节，打破对称结构与同构句式，强化第一人称的立场与锋芒，长短句交错、口语化。保持原意、信息与核心观点不变，只改“读起来的味道”和质感。',
+          '',
+          '输出 JSON：',
+          '{"scores":{"hook":0,"emotion":0,"density":0,"style":0,"structure":0},"total":0,"critique":"具体诊断","revised":{"title":"改写后标题","body":"改写后正文"}}',
+          'total 为五项综合（0-100）。revised 必须与原稿有可见差别（是实打实的去 AI 味打磨，不是换几个词的微调），但绝不能偏离原意或丢信息。',
         ].join('\n'),
       });
       rounds.push({ round: i, scores: raw.scores, total: raw.total, critique: raw.critique });
