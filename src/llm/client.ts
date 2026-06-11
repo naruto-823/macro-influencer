@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { traceLlm, tracedFetch } from './trace.js';
 
 export interface LlmCompleteOpts {
   system?: string;
@@ -106,20 +107,30 @@ export class ClaudeLlmClient implements LlmClient {
     const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
     const baseURL = opts.baseURL ?? process.env.ANTHROPIC_BASE_URL;
     // maxRetries：SDK 对 429/5xx 自动退避重试并尊重 retry-after，应对 fox 代理限流（默认 2，调高更稳）。
-    this.client = new Anthropic({ apiKey, baseURL: baseURL || undefined, maxRetries: 6 });
+    // fetch：自定义以记录底层每个 HTTP 请求（含重试）的链路 span。
+    const clientOpts = {
+      apiKey,
+      baseURL: baseURL || undefined,
+      maxRetries: 6,
+    } as ConstructorParameters<typeof Anthropic>[0];
+    (clientOpts as { fetch?: unknown }).fetch = tracedFetch;
+    this.client = new Anthropic(clientOpts);
   }
 
   async complete(opts: LlmCompleteOpts): Promise<string> {
-    const res = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 4096,
-      system: opts.system,
-      messages: [{ role: 'user', content: opts.prompt }],
+    return traceLlm('complete', { model: this.model, inChars: opts.prompt.length }, async () => {
+      const res = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 4096,
+        system: opts.system,
+        messages: [{ role: 'user', content: opts.prompt }],
+      });
+      const result = res.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      return { result, outTokens: res.usage.output_tokens, extra: { stop: res.stop_reason } };
     });
-    return res.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('');
   }
 
   /**
@@ -145,17 +156,31 @@ export class ClaudeLlmClient implements LlmClient {
       ],
       tool_choice: { type: 'tool' as const, name: 'emit_result' },
     };
-    // 个别情况下代理未强制 tool_choice、返回普通文本；重试一次再退回文本解析。
-    let lastText = '';
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await this.client.messages.create(req);
-      const tool = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-      if (tool) return tool.input as T;
-      lastText = res.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('');
-    }
-    return parseJson<T>(lastText);
+    return traceLlm(
+      'completeJson',
+      { model: this.model, inChars: opts.prompt.length, hasSchema: !!opts.schema },
+      async () => {
+        // 个别情况下代理未强制 tool_choice、返回普通文本；重试一次再退回文本解析。
+        let lastText = '';
+        let lastTokens: number | undefined;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const res = await this.client.messages.create(req);
+          lastTokens = res.usage.output_tokens;
+          const tool = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+          if (tool) {
+            return { result: tool.input as T, outTokens: lastTokens, extra: { via: 'tool_use' } };
+          }
+          lastText = res.content
+            .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+        }
+        return {
+          result: parseJson<T>(lastText),
+          outTokens: lastTokens,
+          extra: { via: 'text_fallback' },
+        };
+      },
+    );
   }
 }

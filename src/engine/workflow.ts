@@ -1,3 +1,4 @@
+import { withTrace } from '../llm/trace.js';
 import type { PipelineEvent } from './events.js';
 import type { SkillRegistry } from './registry.js';
 import type { SkillContext, Stage } from './types.js';
@@ -70,7 +71,9 @@ export class WorkflowEngine {
       onEvent?.({ type: 'stage.start', skill: skill.name, title: skill.title, index: i });
       ctx.emit(`▶ ${skill.title}`);
       try {
-        bag[skill.name] = await withTimeout(skill.run(ctx), this.cfg.skillTimeoutMs, skill.title);
+        bag[skill.name] = await withTrace({ runId, skill: skill.name }, () =>
+          withTimeout(skill.run(ctx), this.cfg.skillTimeoutMs, skill.title),
+        );
       } catch (err) {
         onEvent?.({
           type: 'run.failed',

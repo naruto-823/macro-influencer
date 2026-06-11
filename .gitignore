@@ -5,3 +5,4 @@ coverage
 personas
 runs
 *.tsbuildinfo
+logs
