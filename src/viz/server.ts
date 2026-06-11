@@ -64,6 +64,18 @@ async function startRun(personaId: string): Promise<boolean> {
   running = true;
   pendingGate = null;
   const runId = newRunId();
+  // 增量落盘：每完成一步/每个卡点都把已生成的内容写盘，
+  // 这样即便后面失败、中断、或服务重启，已经产出的（选题/初稿/打磨/成品）也都在历史里、刷新可见。
+  const liveBag: Record<string, unknown> = {};
+  const onEvent = (e: Parameters<typeof bus.emit>[0]) => {
+    bus.emit(e);
+    if (e.type === 'stage.done') {
+      liveBag[e.skill] = e.output;
+      void persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
+    } else if (e.type === 'gate') {
+      liveBag[`gate.${e.skill}`] = e.choice;
+    }
+  };
   try {
     const persona = personaId === 'demo' ? demoPersona : await loadPersona(personaId);
     const bag = await runPipeline(runId, {
@@ -79,13 +91,14 @@ async function startRun(personaId: string): Promise<boolean> {
         // 含人工卡点等待时间，放宽到 30 分钟。
         runWallclockMs: 1_800_000,
         gate: interactiveGate,
-        onEvent: (e) => bus.emit(e),
+        onEvent,
       },
     });
-    const dir = await persistRun(resolve('runs'), runId, bag);
+    const dir = await persistRun(RUNS_DIR, runId, bag);
     bus.emit({ type: 'run.done', runId, dir });
   } catch (e) {
-    // 引擎已在失败的 skill 上发过 run.failed；这里兜底捕获加载/落盘等其它错误。
+    // 失败/中止时，已增量落盘的部分仍在历史里；这里兜底再存一次当前进度。
+    await persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
     bus.emit({ type: 'run.failed', error: e instanceof Error ? e.message : String(e) });
   } finally {
     running = false;
