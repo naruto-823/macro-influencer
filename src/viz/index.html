@@ -246,7 +246,22 @@ es.onmessage=ev=>{
   else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); loadRuns(); }
   else if(e.type==='run.failed'){ statusEl.textContent='失败 ❌'; goBtn.disabled=false; if(e.skill)setNode(e.skill,'failed'); banner.className='banner fail'; banner.textContent='❌ 失败'+(e.skill?'（'+e.skill+'）':'')+'：'+e.error; log('❌ '+e.error,1); }
 };
-es.onerror=()=>{ statusEl.textContent='连接断开，刷新重试'; };
+// 服务启动 id：断连后轮询，若 id 变了（=后端重启过）自动整页刷新拿最新前端。
+let __sid=null, __polling=false;
+fetch('/version').then(r=>r.json()).then(v=>{__sid=v.id;}).catch(()=>{});
+es.onerror=()=>{
+  statusEl.textContent='连接断开，重连中…';
+  if(__polling) return; __polling=true;
+  const t=setInterval(async()=>{
+    try{
+      const v=await (await fetch('/version',{cache:'no-store'})).json();
+      if(v&&v.id){
+        if(__sid&&v.id!==__sid){ clearInterval(t); location.reload(); return; } // 后端重启 → 刷新
+        clearInterval(t); __polling=false; // 服务恢复且同 id：SSE 自行重连，无需刷新
+      }
+    }catch{ /* 服务还没回来，继续轮询 */ }
+  },1500);
+};
 
 goBtn.onclick=async()=>{
   goBtn.disabled=true; statusEl.textContent='启动中…';

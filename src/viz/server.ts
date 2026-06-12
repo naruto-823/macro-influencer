@@ -2,9 +2,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadPersona, newRunId } from '../cli.js';
+import { loadPersona, makeLlm, newRunId } from '../cli.js';
 import { EventBus } from '../engine/events.js';
-import { ClaudeLlmClient } from '../llm/client.js';
 import { persistRun } from '../output/persist.js';
 import { demoPersona } from '../persona/examples/demo.js';
 import { runPipeline } from '../run.js';
@@ -21,6 +20,8 @@ try {
 
 const PORT = Number(process.env.VIZ_PORT ?? 5180);
 const INDEX_HTML = fileURLToPath(new URL('./index.html', import.meta.url));
+// 本次服务启动 id：前端断连重连后比对，变了说明服务重启过 → 自动刷新拿最新前端。
+const SERVER_ID = String(Date.now());
 
 const bus = new EventBus();
 const RUNS_DIR = resolve('runs');
@@ -84,7 +85,7 @@ async function startRun(personaId: string): Promise<boolean> {
   try {
     const persona = personaId === 'demo' ? demoPersona : await loadPersona(personaId);
     const bag = await runPipeline(runId, {
-      llm: new ClaudeLlmClient(),
+      llm: makeLlm(),
       persona,
       hotspot: new CachedHotspotSource(
         new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
@@ -137,6 +138,12 @@ const server = createServer(async (req, res) => {
       clearInterval(ping);
       off();
     });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/version') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ id: SERVER_ID }));
     return;
   }
 

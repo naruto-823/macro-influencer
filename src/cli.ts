@@ -1,7 +1,14 @@
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { pathToFileURL } from 'node:url';
+import { ClaudeCliClient } from './llm/claude-cli.js';
 import { ClaudeLlmClient } from './llm/client.js';
+import type { LlmClient } from './llm/client.js';
+
+/** 选 LLM 后端：默认本机 claude -p（绕开 fox 截断/限流）；LLM_BACKEND=fox 切回代理。 */
+export function makeLlm(): LlmClient {
+  return process.env.LLM_BACKEND === 'fox' ? new ClaudeLlmClient() : new ClaudeCliClient();
+}
 import { persistRun } from './output/persist.js';
 import { demoPersona } from './persona/examples/demo.js';
 import type { PersonaPack } from './persona/persona-pack.js';
@@ -91,7 +98,7 @@ async function main(): Promise<void> {
   );
 
   const bag = await runPipeline(runId, {
-    llm: new ClaudeLlmClient(),
+    llm: makeLlm(),
     persona,
     hotspot: new CachedHotspotSource(
       new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
