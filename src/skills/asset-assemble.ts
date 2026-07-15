@@ -9,7 +9,7 @@ interface RawPackaging {
 
 export const assetAssembleSkill: Skill<FinalAsset> = {
   name: 'asset.assemble',
-  title: '⑤ 组装最终作品',
+  title: '⑧ 标题与封面',
   async run(ctx) {
     // 正文用打磨/风控后的成稿原文，一字不改（不再让模型重写正文，避免改短改差）。
     const draft = (ctx.bag['risk.review'] as RiskReport).rewritten;
@@ -31,7 +31,7 @@ export const assetAssembleSkill: Skill<FinalAsset> = {
         `正文（仅供你理解，不要改写、不要输出）：\n${draft.body}`,
         '',
         '产出 JSON：',
-        '{"titles":["3-4个标题候选，强钩子、可做A/B测"],"imagePrompts":["配图分镜，每张一句画面描述/文案，3-6张，第一张是封面"],"publishTips":"最佳发布时间 + 话题标签建议"}',
+        '{"titles":["8-12个标题候选，套爆款公式：绑定具体人群/制造认知冲突(竟然/没想到)/量化利益/身份标签+反差判断；强钩子、可挑选A/B"],"imagePrompts":["配图分镜，每张一句画面描述/文案，3-6张，第一张是封面"],"publishTips":"最佳发布时间 + 话题标签建议"}',
       ].join('\n'),
     });
 

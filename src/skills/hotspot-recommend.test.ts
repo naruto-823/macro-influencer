@@ -12,6 +12,7 @@ function ctx(llm: FakeLlmClient): SkillContext {
   return {
     runId: 'r1',
     llm,
+    judge: llm,
     // biome-ignore lint/suspicious/noExplicitAny: 仅读 positioning/topicPreferences
     persona: { positioning: '大厂研发', topicPreferences: ['AI'] } as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources

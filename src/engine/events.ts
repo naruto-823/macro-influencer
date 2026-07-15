@@ -6,6 +6,8 @@ export type PipelineEvent =
   | { type: 'stage.done'; skill: string; output: unknown }
   | { type: 'gate.waiting'; skill: string; question: string; options: string[] }
   | { type: 'gate'; skill: string; question: string; choice: string }
+  | { type: 'stage.failed'; skill: string; title: string; error: string; attempt: number }
+  | { type: 'stage.retry'; skill: string; choice: string }
   | { type: 'run.done'; runId: string; dir: string }
   | { type: 'run.failed'; skill?: string; error: string };
 

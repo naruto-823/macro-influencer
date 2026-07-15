@@ -12,6 +12,7 @@ function ctx(llm: FakeLlmClient, gateChoice: string): SkillContext {
   return {
     runId: 'r1',
     llm,
+    judge: llm,
     // biome-ignore lint/suspicious/noExplicitAny: 仅读风格与样本
     persona: { styleGuide: '口语化', sampleNotes: [{ title: 's', body: 'b' }] } as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources

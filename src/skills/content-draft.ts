@@ -1,8 +1,8 @@
-import type { Draft, Skill, Topic } from '../engine/types.js';
+import type { DeepResearch, Draft, Outline, Skill, Topic } from '../engine/types.js';
 
 export const contentDraftSkill: Skill<Draft> = {
   name: 'content.draft',
-  title: '③ 生成初稿',
+  title: '④ 写初稿',
   async run(ctx) {
     const topics = (ctx.bag['topic.generate'] as Topic[]) ?? [];
     const choiceId = ctx.bag['gate.topic.generate'] as string | undefined;
@@ -12,6 +12,33 @@ export const contentDraftSkill: Skill<Draft> = {
     const samples = ctx.persona.sampleNotes
       .map((n) => `【标题】${n.title}\n【正文】${n.body}`)
       .join('\n---\n');
+
+    // 框架先行：严格按 ③ 搭框架 定下的骨架来写（有则用）。
+    const outline = ctx.bag['content.outline'] as Outline | undefined;
+    const outlineBlock = outline
+      ? [
+          '',
+          '【必须严格遵循的结构大纲（③ 已搭好的骨架，按它来写，别另起炉灶）】：',
+          `开头钩子策略：${outline.hookStrategy}`,
+          `核心立场：${outline.thesis}`,
+          '段落骨架：',
+          ...(outline.sections ?? []).map(
+            (s, i) => `  ${i + 1}. ${s.heading}：${(s.points ?? []).join('；')}`,
+          ),
+          `预设金句落点：${(outline.goldenLines ?? []).join(' / ')}`,
+          `结尾收法：${outline.ending}`,
+        ].join('\n')
+      : '';
+
+    // 深度调研档案（联网查证的真实资料）作为事实底料；缺省则照旧凭选题写。
+    const research = ctx.bag['deep.search'] as DeepResearch | undefined;
+    const researchBlock = research?.report
+      ? [
+          '',
+          '【深度调研档案 —— 这是针对本选题联网查证过的真实资料，务必把其中的真实事实、数据、时间线、细节、争议与金句素材自然揉进文章，确保内容扎实、可信、有信息增量。不要照抄罗列，要消化成叙事；不要编造档案里没有的事实】：',
+          research.report,
+        ].join('\n')
+      : '';
 
     const draft = await ctx.llm.completeJson<Draft>({
       schema: {
@@ -29,6 +56,8 @@ export const contentDraftSkill: Skill<Draft> = {
         '',
         `本次选题：${topic.title}`,
         `切入角度：${topic.angle}`,
+        outlineBlock,
+        researchBlock,
         '',
         '要求（务必做到）：',
         '1. 开篇用一个具体场景/反常事实/思想实验制造钩子，别上来就讲道理。',
@@ -37,6 +66,7 @@ export const contentDraftSkill: Skill<Draft> = {
         '4. 禁止代码块、禁止 markdown 标题(#)、禁止技术文档式死板分点和说教注水。技术选题也要写成有钩子有共鸣的故事。',
         '5. 不要 AI 腔：别用机械过渡词（首先/其次/然而/总之），别用空泛套话（“在这个XX的时代”“不仅…而且”“让我们”），别堆成语，别每段同一种句式、工整到假。像真人随口把一件事讲透：长短句交错、有具体细节和真实例子、有态度有锋芒。',
         '6. 标题强钩子；结尾落在一句有力的金句 + 互动引导；正文结尾带 8 个左右话题标签。长度向样本看齐（足够展开，不要敷衍）。',
+        '7. 【真实性铁律，违反即废稿】绝不许编造任何具体的评分、播放量、销量、百分比、金额、日期、排名、人名、引语——这类「可被核查的硬数据」只能用上面调研档案里明确写到的；档案里没有的，就用定性说法（如「口碑下滑」「争议很大」）或干脆不写，绝不为了显得可信而杜撰一个数字。宁可少给数据，也不能给假数据。',
         '',
         '输出 JSON：{"title":"标题","body":"正文"}。',
       ].join('\n'),

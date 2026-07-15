@@ -9,6 +9,19 @@ import type { LlmClient } from './llm/client.js';
 export function makeLlm(): LlmClient {
   return process.env.LLM_BACKEND === 'fox' ? new ClaudeLlmClient() : new ClaudeCliClient();
 }
+
+/**
+ * 评审/裁判模型：精修循环与事实核查用它当裁判。默认 fox 的另一模型（换模型评审破「自我偏爱」偏差）。
+ * 写手默认是本机 claude -p；裁判用 fox，天然形成模型多样性。若 fox 没配好则退回写手模型。
+ */
+export function makeJudge(writer: LlmClient): LlmClient {
+  try {
+    if (process.env.ANTHROPIC_API_KEY) return new ClaudeLlmClient();
+  } catch {
+    // fox 构造失败则退回写手模型
+  }
+  return writer;
+}
 import { persistRun } from './output/persist.js';
 import { demoPersona } from './persona/examples/demo.js';
 import type { PersonaPack } from './persona/persona-pack.js';
@@ -74,6 +87,21 @@ function terminalGate(question: string, options: string[]): Promise<string> {
     .finally(() => rl.close());
 }
 
+/** 终端交互：某节点失败后，问要不要重试（复用前序结果）。 */
+async function terminalStageFailed(info: {
+  title: string;
+  error: string;
+}): Promise<'retry' | 'skip' | 'abort'> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ans = await rl
+    .question(`\n❌「${info.title}」失败：${info.error}\n  重试(r) / 跳过(s) / 中止(a)？ [r] `)
+    .finally(() => rl.close());
+  const a = ans.trim().toLowerCase();
+  if (a === 's' || a === 'skip') return 'skip';
+  if (a === 'a' || a === 'abort') return 'abort';
+  return 'retry';
+}
+
 /** 无人值守卡点：选题取第一个、其余取第一个选项（风控即「通过」）。 */
 async function autoGate(question: string, options: string[]): Promise<string> {
   const choice = options[0] ?? '';
@@ -97,17 +125,22 @@ async function main(): Promise<void> {
     `\n🚀 百万网红 Agent | 账号：${persona.displayName} | 模式：${mode} | run：${runId}\n`,
   );
 
+  const writer = makeLlm();
   const bag = await runPipeline(runId, {
-    llm: makeLlm(),
+    llm: writer,
+    judge: makeJudge(writer),
     persona,
     hotspot: new CachedHotspotSource(
       new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
       { ttlMs: 7_200_000, file: resolve('cache', 'hotspots.json') },
     ),
     engineCfg: {
-      skillTimeoutMs: 300_000,
-      runWallclockMs: 1_800_000,
+      // deepsearch 联网检索较慢，单步给到 8 分钟。
+      skillTimeoutMs: 480_000,
+      runWallclockMs: 3_600_000,
       gate: args.auto ? autoGate : terminalGate,
+      autoRetries: 1,
+      onStageFailed: args.auto ? undefined : terminalStageFailed,
     },
   });
 
@@ -124,7 +157,8 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1]?.endsWith('cli.ts') || process.argv[1]?.endsWith('cli.js')) {
+// 只在直接运行 src/cli.ts 时启动；注意别误命中 node-cli.ts（它会 import 本文件）。
+if (/[/\\]cli\.(ts|js)$/.test(process.argv[1] ?? '')) {
   main().catch((e) => {
     console.error('❌ 运行失败：', e);
     process.exit(1);

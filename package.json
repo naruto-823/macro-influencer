@@ -5,20 +5,33 @@
   "type": "module",
   "description": "百万网红 Agent — 人设驱动的小红书图文选题与成稿流水线",
   "packageManager": "pnpm@9.12.0",
-  "engines": { "node": ">=20.10.0", "pnpm": ">=9" },
-  "bin": { "influencer": "./dist/cli.js" },
+  "engines": {
+    "node": ">=20.10.0",
+    "pnpm": ">=9"
+  },
+  "bin": {
+    "influencer": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -b",
     "start": "tsx src/cli.ts",
+    "node-run": "tsx src/node-cli.ts",
+    "publish": "tsx src/publish/publish-cli.ts",
+    "publish:auth": "tsx src/publish/auth-setup.ts",
+    "publish:xhs": "tsx src/publish/xhs-driver.ts",
     "viz": "tsx src/viz/server.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "daily": "tsx src/publish/daily.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.65.0"
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

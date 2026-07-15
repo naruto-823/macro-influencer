@@ -7,3 +7,8 @@ runs
 *.tsbuildinfo
 logs
 cache
+out
+.DS_Store
+
+# Aroon code generation tracking
+.aroon/

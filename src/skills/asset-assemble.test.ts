@@ -4,10 +4,16 @@ import { FakeLlmClient } from '../llm/fake.js';
 import { assetAssembleSkill } from './asset-assemble.js';
 
 function ctx(llm: FakeLlmClient): SkillContext {
-  const risk: RiskReport = { hits: [], level: 'pass', rewritten: { title: 't', body: 'b' } };
+  const risk: RiskReport = {
+    hits: [],
+    level: 'pass',
+    fixes: [],
+    rewritten: { title: 't', body: 'b' },
+  };
   return {
     runId: 'r1',
     llm,
+    judge: llm,
     // biome-ignore lint/suspicious/noExplicitAny: 不读 persona
     persona: {} as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources

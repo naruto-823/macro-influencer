@@ -8,6 +8,7 @@ function ctx(llm: FakeLlmClient, body: string): SkillContext {
   return {
     runId: 'r1',
     llm,
+    judge: llm,
     // biome-ignore lint/suspicious/noExplicitAny: 不读 persona
     persona: {} as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources
@@ -19,19 +20,32 @@ function ctx(llm: FakeLlmClient, body: string): SkillContext {
 }
 
 describe('risk.review', () => {
-  it('命中敏感词时调用 LLM 改写并标记风险等级', async () => {
-    const llm = new FakeLlmClient([JSON.stringify({ title: '安全标题', body: '安全正文' })]);
+  it('命中敏感词标 high；按 fixes 对原文精确替换（不信 LLM 整篇 rewritten）', async () => {
+    const llm = new FakeLlmClient([
+      JSON.stringify({ fixes: [{ from: '最好的', to: '我用过不错的', rule: '极限词' }] }),
+    ]);
     const report = await riskReviewSkill.run(ctx(llm, '这是最好的，加微信'));
     expect(report.level).toBe('high'); // 命中导流词
     expect(report.hits.length).toBeGreaterThan(0);
-    expect(report.rewritten.body).toBe('安全正文');
+    expect(report.fixes).toHaveLength(1);
+    // from 在正文里精确替换 → 杜撰/违规表述被换掉
+    expect(report.rewritten.body).toBe('这是我用过不错的，加微信');
   });
 
-  it('无命中则 pass 且不调用 LLM，原文直接通过', async () => {
-    const llm = new FakeLlmClient([]); // 一旦调用就会抛错
+  it('fixes 的 from 在正文匹配不到则跳过、不误伤', async () => {
+    const llm = new FakeLlmClient([
+      JSON.stringify({ fixes: [{ from: '正文里不存在的句子', to: 'x', rule: '事实存疑' }] }),
+    ]);
+    const report = await riskReviewSkill.run(ctx(llm, '今天分享一个好用的小工具'));
+    expect(report.fixes).toEqual([]);
+    expect(report.rewritten.body).toBe('今天分享一个好用的小工具');
+  });
+
+  it('无违规则 fixes 为空、原文原样返回', async () => {
+    const llm = new FakeLlmClient([JSON.stringify({ fixes: [] })]);
     const report = await riskReviewSkill.run(ctx(llm, '今天分享一个好用的小工具'));
     expect(report.level).toBe('pass');
+    expect(report.fixes).toEqual([]);
     expect(report.rewritten.body).toBe('今天分享一个好用的小工具');
-    expect(llm.calls).toHaveLength(0);
   });
 });

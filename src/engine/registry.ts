@@ -13,4 +13,9 @@ export class SkillRegistry {
     if (!s) throw new Error(`unknown skill: ${name}`);
     return s;
   }
+
+  /** 已注册的所有 skill 名（按注册顺序）。 */
+  names(): string[] {
+    return [...this.skills.keys()];
+  }
 }

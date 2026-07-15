@@ -100,6 +100,7 @@
   <div class="main">
     <div class="banner" id="banner"></div>
     <div class="gate-box" id="gate"></div>
+    <div class="gate-box" id="fail" style="border-color:var(--fail);background:rgba(248,81,73,.1)"></div>
     <div class="pipe" id="pipe"></div>
     <div class="detail" id="detail"><div class="empty">点上方任一阶段查看它的实时产物。</div></div>
   </div>
@@ -113,10 +114,16 @@
 
 <script>
 const TITLES = {
-  'hotspot.fetch':['①','抓热点'], 'hotspot.recommend':['🎯','精选推荐'], 'topic.generate':['②','生成选题集'],
-  'content.draft':['③','生成初稿'], 'content.refine':['③','反复打磨'],
-  'risk.review':['④','过风控'], 'asset.assemble':['⑤','组装成品'],
+  'hotspot.fetch':['①','热点·选题'], 'hotspot.recommend':['🎯','精选推荐'], 'topic.generate':['②','生成选题集'],
+  'deep.search':['②','深度调研'],
+  'content.outline':['③','搭框架'], 'content.draft':['④','写初稿'], 'content.refine':['⑤','精修循环'],
+  'fact.check':['⑥','事实核查'], 'risk.review':['⑦','合规风控'], 'asset.assemble':['⑧','标题封面'],
+  'image.render':['⑨','出图'],
 };
+// 当前 run 的 id：出图节点的 <img> 要据此拼 /img/<runId>/<name>。
+let RUN_ID=null;
+// 每次开页一个版本号：图片 URL 带上它，绕开浏览器对同名图的顽固缓存（重出/重试后能看到新图）。
+const PAGE_V=Date.now();
 const pipe = document.getElementById('pipe');
 const detail = document.getElementById('detail');
 const banner = document.getElementById('banner');
@@ -124,11 +131,15 @@ const logEl = document.getElementById('log');
 const goBtn = document.getElementById('go');
 const statusEl = document.getElementById('status');
 let outputs = {}, activeSkill = null;
-// 这些阶段照常后台运行，但不在流水线节点行单独显示；其产物并入 ① 抓热点 面板展示。
-const HIDDEN = new Set(['hotspot.recommend']);
+// 这些阶段照常后台运行，但不在流水线节点行单独显示；其产物并入 ① 热点·选题 面板展示。
+const HIDDEN = new Set(['hotspot.recommend','topic.generate']);
+// 隐藏阶段的运行状态/卡点标记映射到哪个可见节点。
+const MERGED_INTO = { 'hotspot.recommend':'hotspot.fetch', 'topic.generate':'hotspot.fetch' };
 
 function log(msg, hl){ const d=document.createElement('div'); if(hl)d.className='hl'; d.textContent=msg; logEl.prepend(d); }
 function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+// 把任意值转成可读字符串：对象（如模型把金句返回成 {段落,金句}）取其字符串字段拼接，避免 [object Object]。
+function disp(v){ if(v==null)return''; if(typeof v==='string')return v; if(typeof v==='object'){ const ss=Object.values(v).filter(x=>typeof x==='string'); return ss.length?ss.join('：'):JSON.stringify(v); } return String(v); }
 function fmtHeat(n){ n=Number(n)||0; return n>=10000 ? (n/10000).toFixed(n>=1000000?0:1)+'万' : ''+n; }
 
 function buildPipe(stages){
@@ -150,7 +161,7 @@ function setNode(sk,st,sub){
   if(st==='running'){ n.classList.add('active'); activeSkill=sk; if(!outputs[sk]) showDetail(sk); }
 }
 function addGate(sk,choice){
-  const n=document.getElementById('n-'+sk); if(!n)return;
+  const n=document.getElementById('n-'+(MERGED_INTO[sk]||sk)); if(!n)return;
   let g=n.querySelector('.gate'); if(!g){ g=document.createElement('div'); g.className='gate'; n.appendChild(g); }
   g.textContent='卡点 → '+choice;
 }
@@ -159,6 +170,13 @@ function fmt(sk,o){
   if(o==null) return '<span class="empty">运行中…</span>';
   if(sk==='hotspot.fetch'){
     const a=o||[]; if(!a.length) return '<span class="empty">本次无热点</span>';
+    // 📌 选题集：从精选热点结合人设生成的选题（来自 topic.generate），满宽置顶，点选题卡点在此决策
+    const topics=outputs['topic.generate']||[];
+    let topicBoard='';
+    if(topics.length){
+      const trows=topics.map((t,i)=>`<div class="rec"><div class="rec-h"><span class="rk top">${esc(t.id||(i+1))}</span><span class="rec-t">${esc(t.title)}</span></div><div class="rec-b">🎬 ${esc(t.angle)}<br>💡 ${esc(t.rationale||'')}</div></div>`).join('');
+      topicBoard=`<div class="board" style="grid-column:1/-1;border-color:var(--accent)"><div class="board-h">📌 选题集 · 选一个进入深度调研<span class="cnt">${topics.length}</span></div><div class="recs" style="margin-top:8px">${trows}</div></div>`;
+    }
     // 🎯 精选板：建议优先蹭的热点（来自 hotspot.recommend），满宽置顶
     const recs=outputs['hotspot.recommend']||[];
     let recBoard='';
@@ -174,25 +192,102 @@ function fmt(sk,o){
       const rows=items.map((h,i)=>`<div class="hot-row"><span class="rk${i<3?' top':''}">${i+1}</span><span class="ht">${esc(h.title)}</span><span class="hv">${fmtHeat(h.heat)}</span></div>`).join('');
       return `<div class="board"><div class="board-h">${esc(src)}<span class="cnt">${items.length}</span></div>${rows}</div>`;
     }).join('');
-    return `<div class="boards">${recBoard}${boards}</div>`;
+    return `<div class="boards">${topicBoard}${recBoard}${boards}</div>`;
+  }
+  if(sk==='deep.search'){
+    if(o==null) return '<span class="empty">联网调研中…（正在检索真实资料，较慢请稍候）</span>';
+    const tag=o.online?'<span class="chip">🌐 已联网查证</span>':'<span class="chip bad">未联网 · 模型知识</span>';
+    const src=(o.sources||[]).map((u,i)=>`<div><a href="${esc(u)}" target="_blank" style="color:var(--blue)">${i+1}. ${esc(u)}</a></div>`).join('')||'<span class="empty">报告内未提取到链接</span>';
+    return `${tag} 选题：<b>${esc(o.topic||'')}</b><pre>${esc(o.report||'')}</pre><b>参考资料</b>${src}`;
   }
   if(sk==='hotspot.recommend'){ const a=o||[]; if(!a.length) return '<span class="empty">本次无精选</span>'; return '<div class="recs">'+a.map((r,i)=>`<div class="rec"><div class="rec-h"><span class="rk top">${i+1}</span><span class="rec-src">${esc(r.source)}</span><span class="rec-t">${esc(r.title)}</span><span class="hv">${fmtHeat(r.heat)}</span></div><div class="rec-b">💡 ${esc(r.reason)}<br>🎬 ${esc(r.angle)}</div></div>`).join('')+'</div>'; }
   if(sk==='topic.generate'){ return (o||[]).map((t,i)=>`<div><b>${i+1}. ${esc(t.title)}</b><br><span style="color:#8b949e">角度：${esc(t.angle)}</span></div>`).join('<br>'); }
-  if(sk==='content.draft'){ return `<b>${esc(o.title)}</b><pre>${esc(o.body)}</pre>`; }
-  if(sk==='content.refine'){ const r=(o.rounds||[]).map(x=>`<span class="chip">第${x.round}轮 ${x.total}分</span>`).join(''); return `${r}<br><br><b>${esc(o.final?.title||'')}</b><pre>${esc(o.final?.body||'')}</pre>`; }
-  if(sk==='risk.review'){ const h=(o.hits||[]).map(x=>`<span class="chip bad">${esc(x.term)}·${esc(x.category)}</span>`).join('')||'<span class="chip">无命中</span>'; return `风险等级：<b>${esc(o.level)}</b><br>命中：${h}<br><br>改写后：<b>${esc(o.rewritten?.title||'')}</b><pre>${esc(o.rewritten?.body||'')}</pre>`; }
-  if(sk==='asset.assemble'){ const t=(o.titles||[]).map((x,i)=>`${i+1}. ${esc(x)}`).join('<br>'); const im=(o.imagePrompts||[]).map((x,i)=>`图${i+1}：${esc(x)}`).join('<br>'); return `<b>标题候选</b><br>${t}<pre>${esc(o.body)}</pre><b>配图分镜</b><br>${im}<br><br><b>发布建议</b><pre>${esc(o.publishTips)}</pre>`; }
+  if(sk==='content.outline'){
+    if(o==null) return '<span class="empty">搭框架中…</span>';
+    const secs=(o.sections||[]).map((s,i)=>`<div style="margin:4px 0"><b>${i+1}. ${esc(disp(s.heading))}</b><br><span style="color:#8b949e">${(s.points||[]).map(p=>esc(disp(p))).join('；')}</span></div>`).join('');
+    const gl=(o.goldenLines||[]).map(g=>`<span class="chip">${esc(disp(g))}</span>`).join('');
+    return `<b>开头钩子策略</b>：${esc(o.hookStrategy||'')}<br><b>核心立场</b>：${esc(o.thesis||'')}<br><br><b>段落骨架</b>${secs}<br><b>金句落点</b><br>${gl}<br><br><b>结尾收法</b>：${esc(o.ending||'')}`;
+  }
+  if(sk==='content.draft'){ if(o==null) return '<span class="empty">写初稿中…</span>'; return `<b>${esc(o.title)}</b><pre>${esc(o.body)}</pre>`; }
+  if(sk==='content.refine'){
+    if(o==null) return '<span class="empty">精修中…（裁判评分→定向改写）</span>';
+    const rounds=(o.rounds||[]).map(x=>{
+      const badge=x.applied?'<span class="chip" style="border-color:var(--ok);color:var(--ok)">已采纳改动</span>':'<span class="chip" style="opacity:.55">达标/无实质改动·跳过</span>';
+      const crit=x.critique?`<div style="color:#8b949e;font-size:12px;margin:3px 0">🔍 裁判：${esc(x.critique)}</div>`:'';
+      const ch=(x.changes||[]).length?('<ul style="margin:3px 0 0 16px;padding:0">'+x.changes.map(c=>`<li style="color:var(--ok);font-size:12px">${esc(c)}</li>`).join('')+'</ul>'):'';
+      return `<div style="border-bottom:1px solid #161b22;padding:7px 0"><b>第${x.round}轮 · ${esc(x.dimension)}</b> <span class="chip">${x.total}分</span> ${badge}${crit}${ch}</div>`;
+    }).join('')||'<span class="empty">无精修记录</span>';
+    return `${rounds}<br><b>精修终稿：${esc(o.final?.title||'')}</b><pre>${esc(o.final?.body||'')}</pre>`;
+  }
+  if(sk==='fact.check'){
+    if(o==null) return '<span class="empty">独立事实核查中…</span>';
+    const dot=c=>c==='green'?'🟢':c==='red'?'🔴':'🟡';
+    const rows=(o.claims||[]).map(c=>`<div class="hot-row"><span class="rk">${dot(c.confidence)}</span><span class="ht" style="white-space:normal">${esc(c.claim)}<br><span style="color:#8b949e;font-size:11px">${esc(c.basis||'')}</span></span></div>`).join('')||'<span class="empty">未列出可核查事实</span>';
+    const sum=o.summary?`<div style="color:#8b949e;margin:6px 0">📋 ${esc(o.summary)}</div>`:'';
+    return `<b>事实核查</b> <span class="chip bad">🔴${o.redCount||0} 存疑</span> <span class="chip">共 ${(o.claims||[]).length} 条</span>${sum}${rows}`;
+  }
+  if(sk==='risk.review'){
+    if(o==null) return '<span class="empty">合规风控中…</span>';
+    const h=(o.hits||[]).map(x=>`<span class="chip bad">${esc(x.term)}·${esc(x.category)}</span>`).join('')||'<span class="chip">无静态命中</span>';
+    const fixes=(o.fixes||[]).length?('<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:4px">'+(o.fixes||[]).map(f=>`<tr><td style="color:var(--fail);padding:2px 6px;vertical-align:top">${esc(f.from)}</td><td style="color:#8b949e">→</td><td style="color:var(--ok);padding:2px 6px;vertical-align:top">${esc(f.to)}</td><td><span class="chip">${esc(f.rule)}</span></td></tr>`).join('')+'</table>'):'<span class="empty">无限流红线需改写</span>';
+    return `风险等级：<b>${esc(o.level)}</b><br>静态敏感词：${h}<br><br><b>合规改写对照（看得见改了什么）</b>${fixes}<br><br><b>定稿：${esc(o.rewritten?.title||'')}</b><pre>${esc(o.rewritten?.body||'')}</pre>`;
+  }
+  if(sk==='asset.assemble'){ if(o==null) return '<span class="empty">打包中…</span>'; const t=(o.titles||[]).map((x,i)=>`${i+1}. ${esc(x)}`).join('<br>'); const im=(o.imagePrompts||[]).map((x,i)=>`图${i+1}：${esc(x)}`).join('<br>'); return `<b>标题候选</b><br>${t}<pre>${esc(o.body)}</pre><b>配图分镜</b><br>${im}<br><br><b>发布建议</b><pre>${esc(o.publishTips)}</pre>`; }
+  if(sk==='image.render'){
+    if(o==null) return '<span class="empty">出图中…（每张 claude -p 出 SVG 再渲染，较慢请稍候）</span>';
+    const imgs=o.images||[];
+    if(!imgs.length) return '<span class="empty">本次无配图</span>';
+    const ok=imgs.filter(x=>x.ok).length;
+    const cards=imgs.map(x=>{
+      const head=(x.panel&&x.panel.headline)||'';
+      const desc=head||(x.panel&&x.panel.visual)||x.prompt||'';
+      const cap=`<div style="font-size:11px;color:#8b949e;padding:4px 2px;line-height:1.4">图${x.index+1}${head?'·'+esc(head):''}：${esc(String(desc).slice(0,40))}…</div>`;
+      const retryBtn=RUN_ID?`<button class="gate-btn" style="width:100%;margin:4px 0 0" onclick="retryImg(${x.index},this)">↻ 重试这张</button>`:'';
+      if(x.ok&&x.file&&RUN_ID){ const src='/img/'+encodeURIComponent(RUN_ID)+'/'+encodeURIComponent(x.file)+'?v='+(x._v||PAGE_V); return `<div><a href="${src}" target="_blank"><img src="${src}" style="width:100%;border-radius:8px;border:1px solid var(--line);display:block"/></a>${cap}${retryBtn}</div>`; }
+      return `<div><div style="aspect-ratio:3/4;border:1px dashed var(--fail);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--fail);font-size:12px;text-align:center;padding:8px">出图失败<br><span style="color:#8b949e">${esc((x.error||'').slice(0,40))}</span></div>${cap}${retryBtn}</div>`;
+    }).join('');
+    return `<b>配图</b> <span class="chip">${ok}/${imgs.length} 张</span><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:8px">${cards}</div>`;
+  }
   return `<pre>${esc(JSON.stringify(o,null,2))}</pre>`;
 }
 function showDetail(sk){
   activeSkill=sk;
   document.querySelectorAll('.node').forEach(x=>x.classList.toggle('active',x.id==='n-'+sk));
   const [,name]=TITLES[sk]||['',sk];
-  detail.innerHTML=`<h2>${name}</h2>${fmt(sk,outputs[sk])}`;
+  const canRetry=RUN_ID&&!HIDDEN.has(sk);
+  const btn=canRetry?`<button class="mini" style="float:right;font-size:12px;padding:3px 10px" onclick="retryNode('${sk}',this)">↻ 重试这一步</button>`:'';
+  detail.innerHTML=`<h2>${name}${btn}</h2>${fmt(sk,outputs[sk])}`;
+}
+
+// 单节点重试：用已记录的前序数据重跑这一个节点（历史 run 也可），进度经 SSE 回灌更新。
+async function retryNode(sk,btn){
+  if(!RUN_ID)return;
+  if(btn){btn.disabled=true;btn.textContent='重试中…（可能数分钟）';}
+  setNode(sk,'running');
+  log('↻ 重试节点：'+sk,1);
+  try{
+    const r=await fetch('/node-retry?run='+encodeURIComponent(RUN_ID)+'&skill='+encodeURIComponent(sk),{method:'POST'});
+    const j=await r.json();
+    if(r.ok){ loadRuns(); } // outputs/节点已由 SSE stage.done 更新并重渲
+    else { setNode(sk,'failed'); statusEl.textContent=j.error||'重试失败'; if(activeSkill===sk)showDetail(sk); }
+  }catch(e){ setNode(sk,'failed'); if(activeSkill===sk)showDetail(sk); }
+}
+
+// 单张配图重试：对当前 run 重出第 i 张图，成功后原地替换（带 cache-buster）。
+async function retryImg(i,btn){
+  if(!RUN_ID)return;
+  if(btn){btn.disabled=true;btn.textContent='出图中…（约1-2分钟）';}
+  try{
+    const r=await fetch('/img-retry?run='+encodeURIComponent(RUN_ID)+'&index='+i,{method:'POST'});
+    const j=await r.json();
+    const ir=outputs['image.render'];
+    if(r.ok&&ir&&ir.images){ j._v=Date.now(); ir.images[i]=j; if(activeSkill==='image.render')showDetail('image.render'); }
+    else if(btn){btn.disabled=false;btn.textContent='↻ 重试这张（再试）';}
+  }catch{ if(btn){btn.disabled=false;btn.textContent='↻ 重试这张';} }
 }
 
 // —— 历史 run 回看 ——
-const STAGE_ORDER=['hotspot.fetch','hotspot.recommend','topic.generate','content.draft','content.refine','risk.review','asset.assemble'];
+const STAGE_ORDER=['hotspot.fetch','hotspot.recommend','topic.generate','deep.search','content.outline','content.draft','content.refine','fact.check','risk.review','asset.assemble','image.render'];
 const runsEl=document.getElementById('runs');
 function shortId(id){ const m=id.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/); return m?`${m[2]}-${m[3]} ${m[4]}:${m[5]}`:id; }
 async function loadRuns(){
@@ -205,13 +300,15 @@ async function loadRuns(){
 async function openRun(id){
   try{
     const bag=await (await fetch('/runs/'+encodeURIComponent(id))).json();
+    RUN_ID=id;
     runsEl.querySelectorAll('.run-item').forEach(el=>el.classList.toggle('active', el.dataset.id===id));
     buildPipe(STAGE_ORDER);
     STAGE_ORDER.forEach(sk=>{ if(bag[sk]!==undefined){ outputs[sk]=bag[sk]; setNode(sk,'done'); } });
     if(bag['gate.topic.generate']) addGate('topic.generate', bag['gate.topic.generate']);
+    if(bag['gate.fact.check']) addGate('fact.check', bag['gate.fact.check']);
     if(bag['gate.risk.review']) addGate('risk.review', bag['gate.risk.review']);
     banner.className='banner ok'; banner.textContent='📂 历史回看：'+id;
-    showDetail(bag['asset.assemble']!==undefined ? 'asset.assemble' : (STAGE_ORDER.find(sk=>bag[sk]!==undefined)||'hotspot.fetch'));
+    showDetail(bag['image.render']!==undefined ? 'image.render' : bag['asset.assemble']!==undefined ? 'asset.assemble' : (STAGE_ORDER.find(sk=>bag[sk]!==undefined)||'hotspot.fetch'));
   }catch{ banner.className='banner fail'; banner.textContent='读取历史失败：'+id; }
 }
 document.getElementById('refreshRuns').onclick=loadRuns;
@@ -234,16 +331,42 @@ function showGate(skill,question,options){
 }
 function clearGate(){ gateEl.style.display='none'; gateEl.innerHTML=''; }
 
+const failEl=document.getElementById('fail');
+const RETRY_OPTS=[['retry','↻ 重试这一步'],['skip','⏭ 跳过'],['abort','✕ 中止整条']];
+function showFailure(skill,title,error){
+  failEl.innerHTML=`<div class="gate-q">❌「${esc(title)}」失败：${esc(error)}</div>`+
+    `<div style="font-size:12px;color:#8b949e;margin-bottom:10px">前面的节点结果都还在，重试只会重跑这一步，不会白跑。</div>`+
+    RETRY_OPTS.map(([c,l])=>`<button class="gate-btn" data-c="${c}">${l}</button>`).join('');
+  failEl.style.display='block';
+  failEl.querySelectorAll('.gate-btn').forEach(b=>b.onclick=async()=>{
+    failEl.querySelectorAll('.gate-btn').forEach(x=>x.disabled=true);
+    const r=await fetch('/retry?choice='+encodeURIComponent(b.dataset.c),{method:'POST'});
+    if(!r.ok){ failEl.querySelectorAll('.gate-btn').forEach(x=>x.disabled=false); }
+  });
+}
+function clearFailure(){ failEl.style.display='none'; failEl.innerHTML=''; }
+
 const es=new EventSource('/events');
 es.onmessage=ev=>{
   const e=JSON.parse(ev.data);
-  if(e.type==='run.start'){ statusEl.textContent='运行中'; goBtn.disabled=true; clearGate(); buildPipe(e.stages); log('▶ 开始：'+e.persona,1); }
-  else if(e.type==='stage.start'){ setNode(e.skill,'running'); log('▶ '+e.title,1); }
+  if(e.type==='run.start'){ RUN_ID=e.runId; statusEl.textContent='运行中'; goBtn.disabled=true; clearGate(); clearFailure(); buildPipe(e.stages); log('▶ 开始：'+e.persona,1); }
+  else if(e.type==='stage.start'){
+    const sub=e.skill==='hotspot.recommend'?'精选推荐中…':e.skill==='topic.generate'?'生成选题中…':undefined;
+    setNode(MERGED_INTO[e.skill]||e.skill,'running',sub); log('▶ '+e.title,1);
+  }
   else if(e.type==='stage.progress'){ if(!e.msg.startsWith('▶')) log('  '+e.msg); }
-  else if(e.type==='stage.done'){ outputs[e.skill]=e.output; setNode(e.skill,'done'); if(activeSkill===e.skill)showDetail(e.skill); if(e.skill==='hotspot.recommend'&&activeSkill==='hotspot.fetch')showDetail('hotspot.fetch'); loadRuns(); }
-  else if(e.type==='gate.waiting'){ statusEl.textContent='⏸ 等待你选择'; showGate(e.skill,e.question,e.options); if(e.skill==='topic.generate')showDetail('topic.generate'); log('⏸ 卡点：'+e.question,1); }
+  else if(e.type==='stage.done'){
+    outputs[e.skill]=e.output;
+    if(e.skill==='hotspot.fetch'){ setNode('hotspot.fetch','running','抓取完成 · 选题中…'); if(activeSkill==='hotspot.fetch')showDetail('hotspot.fetch'); }
+    else if(MERGED_INTO[e.skill]){ if(e.skill==='topic.generate')setNode('hotspot.fetch','done'); if(activeSkill==='hotspot.fetch')showDetail('hotspot.fetch'); }
+    else { setNode(e.skill,'done'); if(activeSkill===e.skill)showDetail(e.skill); }
+    loadRuns();
+  }
+  else if(e.type==='gate.waiting'){ statusEl.textContent='⏸ 等待你选择'; showGate(e.skill,e.question,e.options); if(e.skill==='topic.generate')showDetail('hotspot.fetch'); else if(outputs[e.skill]!==undefined)showDetail(e.skill); log('⏸ 卡点：'+e.question,1); }
   else if(e.type==='gate'){ clearGate(); addGate(e.skill,e.choice); log('卡点「'+e.skill+'」→ '+e.choice,1); }
-  else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); loadRuns(); }
+  else if(e.type==='stage.failed'){ statusEl.textContent='❌ 节点失败，待你处理'; setNode(e.skill,'failed'); if(outputs[e.skill]===undefined&&!HIDDEN.has(e.skill))showDetail(e.skill); showFailure(e.skill,e.title,e.error); log('❌ '+e.title+' 失败：'+e.error,1); }
+  else if(e.type==='stage.retry'){ clearFailure(); statusEl.textContent='运行中'; log('↻ 失败处理：'+e.skill+' → '+e.choice,1); }
+  else if(e.type==='run.done'){ statusEl.textContent='完成 ✅'; goBtn.disabled=false; banner.className='banner ok'; banner.textContent='✅ 完成！产物已落盘：'+e.dir; if(outputs['image.render'])showDetail('image.render'); else if(outputs['asset.assemble'])showDetail('asset.assemble'); log('✅ 完成',1); loadRuns(); }
   else if(e.type==='run.failed'){ statusEl.textContent='失败 ❌'; goBtn.disabled=false; if(e.skill)setNode(e.skill,'failed'); banner.className='banner fail'; banner.textContent='❌ 失败'+(e.skill?'（'+e.skill+'）':'')+'：'+e.error; log('❌ '+e.error,1); }
 };
 // 服务启动 id：断连后轮询，若 id 变了（=后端重启过）自动整页刷新拿最新前端。

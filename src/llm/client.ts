@@ -8,9 +8,25 @@ export interface LlmCompleteOpts {
   schema?: Record<string, unknown>;
 }
 
+/** 联网深度调研的入参与产物。 */
+export interface LlmResearchOpts {
+  system?: string;
+  prompt: string;
+  /** 允许的最长耗时（联网检索较慢，默认由实现给足）。 */
+  timeoutMs?: number;
+}
+export interface LlmResearchResult {
+  /** 调研正文（markdown 纯文本） */
+  text: string;
+  /** 是否真·联网（实现支持 web 工具时为 true） */
+  online: boolean;
+}
+
 export interface LlmClient {
   complete(opts: LlmCompleteOpts): Promise<string>;
   completeJson<T>(opts: LlmCompleteOpts): Promise<T>;
+  /** 可选：联网深度调研（允许 WebSearch/WebFetch）。仅 claude -p 后端支持；不支持则缺省。 */
+  research?(opts: LlmResearchOpts): Promise<LlmResearchResult>;
 }
 
 /**
@@ -112,6 +128,8 @@ export class ClaudeLlmClient implements LlmClient {
       apiKey,
       baseURL: baseURL || undefined,
       maxRetries: 6,
+      // 单请求硬超时，防止 fox 网络挂起导致整条调用永久卡住（进而把重试锁锁死）。
+      timeout: 180_000,
     } as ConstructorParameters<typeof Anthropic>[0];
     (clientOpts as { fetch?: unknown }).fetch = tracedFetch;
     this.client = new Anthropic(clientOpts);

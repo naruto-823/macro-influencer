@@ -11,6 +11,7 @@ function ctx(llm: FakeLlmClient): SkillContext {
   return {
     runId: 'r1',
     llm,
+    judge: llm,
     // biome-ignore lint/suspicious/noExplicitAny: 仅读 positioning/styleGuide/topicPreferences
     persona: { positioning: '职场效率', styleGuide: '口语化', topicPreferences: ['效率'] } as any,
     // biome-ignore lint/suspicious/noExplicitAny: 该 skill 不触碰 sources

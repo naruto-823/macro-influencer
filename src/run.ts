@@ -6,9 +6,13 @@ import type { LlmClient } from './llm/client.js';
 import type { PersonaPack } from './persona/persona-pack.js';
 import { assetAssembleSkill } from './skills/asset-assemble.js';
 import { contentDraftSkill } from './skills/content-draft.js';
+import { contentOutlineSkill } from './skills/content-outline.js';
 import { contentRefineSkill } from './skills/content-refine.js';
+import { deepSearchSkill } from './skills/deep-search.js';
+import { factCheckSkill } from './skills/fact-check.js';
 import { hotspotFetchSkill } from './skills/hotspot-fetch.js';
 import { hotspotRecommendSkill } from './skills/hotspot-recommend.js';
+import { imageRenderSkill } from './skills/image-render.js';
 import { riskReviewSkill } from './skills/risk-review.js';
 import { topicGenerateSkill } from './skills/topic-generate.js';
 import type { HotspotSource } from './sources/hotspot-source.js';
@@ -19,10 +23,14 @@ export function buildRegistry(): SkillRegistry {
     hotspotFetchSkill,
     hotspotRecommendSkill,
     topicGenerateSkill,
+    deepSearchSkill,
+    contentOutlineSkill,
     contentDraftSkill,
     contentRefineSkill,
+    factCheckSkill,
     riskReviewSkill,
     assetAssembleSkill,
+    imageRenderSkill,
   ]) {
     reg.register(s);
   }
@@ -42,17 +50,32 @@ export const STAGES: Stage[] = [
     skillName: 'topic.generate',
     gateAfter: { question: '选择一个选题（输入 id）', options: topicGateOptions },
   },
+  { skillName: 'deep.search', timeoutMs: 600_000 },
+  { skillName: 'content.outline' },
   { skillName: 'content.draft' },
-  { skillName: 'content.refine' },
+  // 多轮精修（每维度：fox 裁判 + claude-p 整篇改写，后者偶尔回退 fox），给足时间。
+  { skillName: 'content.refine', timeoutMs: 1_500_000 },
+  {
+    skillName: 'fact.check',
+    gateAfter: {
+      question: '事实核查完毕（关注🔴存疑项），是否继续？',
+      options: ['继续', '打回'],
+      haltOn: ['打回'],
+    },
+  },
   {
     skillName: 'risk.review',
     gateAfter: { question: '风控结果是否通过？', options: ['通过', '打回'], haltOn: ['打回'] },
   },
   { skillName: 'asset.assemble' },
+  // 出图：每张分镜 claude -p 出 SVG 再渲染，较慢，给足 12 分钟。
+  { skillName: 'image.render', timeoutMs: 720_000 },
 ];
 
 export interface RunDeps {
   llm: LlmClient;
+  /** 评审模型（精修循环/事实核查当裁判）；缺省退回 llm。 */
+  judge?: LlmClient;
   persona: PersonaPack;
   hotspot: HotspotSource;
   engineCfg: EngineConfig;
@@ -64,6 +87,7 @@ export async function runPipeline(runId: string, deps: RunDeps): Promise<Record<
   const ctxBase: Omit<SkillContext, 'bag'> = {
     runId,
     llm: deps.llm,
+    judge: deps.judge ?? deps.llm,
     persona: deps.persona,
     sources: { hotspot: deps.hotspot },
     emit: (m) => console.log(m),

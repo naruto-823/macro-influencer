@@ -19,6 +19,8 @@ function ctx(persona: Partial<{ topicPreferences: string[] }>): SkillContext {
     runId: 'r1',
     // biome-ignore lint/suspicious/noExplicitAny: 该 skill 不触碰 llm
     llm: {} as any,
+    // biome-ignore lint/suspicious/noExplicitAny: 该 skill 不触碰 judge
+    judge: {} as any,
     // biome-ignore lint/suspicious/noExplicitAny: 仅用到 topicPreferences
     persona: { topicPreferences: persona.topicPreferences } as any,
     sources: { hotspot: fakeHotspot },
