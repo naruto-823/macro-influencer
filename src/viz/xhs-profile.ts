@@ -61,8 +61,7 @@ export async function analyzeXhsProfile(
     .map((item) => item.noteCard?.displayTitle?.trim() ?? '')
     .filter(Boolean)
     .slice(0, 60);
-  if (!displayName || noteTitles.length < 3)
-    throw new Error('公开资料不足，暂时无法可靠分析该账号');
+  if (!displayName) throw new Error('主页未返回账号名称，可能需要验证或链接已失效');
 
   const analysis = await llm.completeJson<{
     positioning: string;
@@ -71,7 +70,7 @@ export async function analyzeXhsProfile(
   }>({
     system:
       '你是小红书账号分析师。只能依据提供的公开简介和笔记标题归纳，不得编造正文、身份、数据或未提供的事实。',
-    prompt: `分析这个小红书账号，生成可直接用于内容创作的人设配置。\n账号名：${displayName}\n简介：${bio || '未填写'}\n公开笔记标题：\n${noteTitles.map((title, index) => `${index + 1}. ${title}`).join('\n')}\n\n定位需说明账号身份、目标读者和内容价值；风格需总结标题结构、语气、选题角度和表达习惯；选题偏好返回 3-8 个短语。`,
+    prompt: `分析这个小红书账号，生成可直接用于内容创作的人设配置。\n账号名：${displayName}\n简介：${bio || '未填写'}\n公开笔记标题：\n${noteTitles.length ? noteTitles.map((title, index) => `${index + 1}. ${title}`).join('\n') : '平台未向当前抓取环境返回公开笔记，只能依据账号名和简介分析；不得推测不存在的标题或正文。'}\n\n定位需说明账号身份、目标读者和内容价值；风格需总结现有证据能支持的语气、选题角度和表达习惯；选题偏好返回 3-8 个短语。`,
     schema: {
       type: 'object',
       properties: {
@@ -90,8 +89,10 @@ export async function analyzeXhsProfile(
     positioning: analysis.positioning,
     styleGuide: analysis.styleGuide,
     topicPreferences: analysis.topicPreferences,
-    sampleTitle: noteTitles[0] ?? displayName,
-    sampleBody: `公开主页未提供笔记正文。本账号分析仅依据以下公开标题：\n${noteTitles.join('\n')}`,
+    sampleTitle: noteTitles[0] ?? `${displayName}的公开账号资料`,
+    sampleBody: noteTitles.length
+      ? `公开主页未提供笔记正文。本账号分析仅依据以下公开标题：\n${noteTitles.join('\n')}`
+      : `公开主页未向当前抓取环境返回笔记列表。本账号分析仅依据公开简介：\n${bio || '未填写简介'}`,
     noteTitles,
   };
 }
