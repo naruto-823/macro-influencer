@@ -1,0 +1,97 @@
+import type { LlmClient } from '../llm/client.js';
+
+export interface AnalyzedXhsProfile {
+  sourceUrl: string;
+  displayName: string;
+  bio: string;
+  positioning: string;
+  styleGuide: string;
+  topicPreferences: string[];
+  sampleTitle: string;
+  sampleBody: string;
+  noteTitles: string[];
+}
+
+function validProfileUrl(raw: string): URL {
+  const url = new URL(raw);
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname !== 'www.xiaohongshu.com' ||
+    !/^\/user\/profile\/[a-zA-Z0-9]+\/?$/.test(url.pathname)
+  ) {
+    throw new Error('请粘贴有效的小红书用户主页链接');
+  }
+  url.search = '';
+  url.hash = '';
+  return url;
+}
+
+export async function analyzeXhsProfile(
+  rawUrl: string,
+  llm: LlmClient,
+): Promise<AnalyzedXhsProfile> {
+  const url = validProfileUrl(rawUrl);
+  const response = await fetch(url, {
+    headers: {
+      'user-agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36',
+      accept: 'text/html,application/xhtml+xml',
+    },
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!response.ok) throw new Error(`小红书主页访问失败（HTTP ${response.status}）`);
+  const html = await response.text();
+  const rawState = html.match(/window\.__INITIAL_STATE__=(.*?)<\/script>/s)?.[1];
+  if (!rawState) throw new Error('主页未返回公开账号资料，可能需要登录或链接已失效');
+  const state = JSON.parse(rawState.replace(/:undefined(?=[,}])/g, ':null')) as {
+    user?: {
+      userPageData?: {
+        basicInfo?: { nickname?: string; desc?: string };
+        notes?: Array<
+          Array<{ noteCard?: { displayTitle?: string; interactInfo?: { likedCount?: string } } }>
+        >;
+      };
+    };
+  };
+  const page = state.user?.userPageData;
+  const displayName = page?.basicInfo?.nickname?.trim() ?? '';
+  const bio = page?.basicInfo?.desc?.trim() ?? '';
+  const cards = page?.notes?.flat() ?? [];
+  const noteTitles = cards
+    .map((item) => item.noteCard?.displayTitle?.trim() ?? '')
+    .filter(Boolean)
+    .slice(0, 60);
+  if (!displayName || noteTitles.length < 3)
+    throw new Error('公开资料不足，暂时无法可靠分析该账号');
+
+  const analysis = await llm.completeJson<{
+    positioning: string;
+    styleGuide: string;
+    topicPreferences: string[];
+  }>({
+    system:
+      '你是小红书账号分析师。只能依据提供的公开简介和笔记标题归纳，不得编造正文、身份、数据或未提供的事实。',
+    prompt: `分析这个小红书账号，生成可直接用于内容创作的人设配置。\n账号名：${displayName}\n简介：${bio || '未填写'}\n公开笔记标题：\n${noteTitles.map((title, index) => `${index + 1}. ${title}`).join('\n')}\n\n定位需说明账号身份、目标读者和内容价值；风格需总结标题结构、语气、选题角度和表达习惯；选题偏好返回 3-8 个短语。`,
+    schema: {
+      type: 'object',
+      properties: {
+        positioning: { type: 'string' },
+        styleGuide: { type: 'string' },
+        topicPreferences: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['positioning', 'styleGuide', 'topicPreferences'],
+      additionalProperties: false,
+    },
+  });
+  return {
+    sourceUrl: url.toString(),
+    displayName,
+    bio,
+    positioning: analysis.positioning,
+    styleGuide: analysis.styleGuide,
+    topicPreferences: analysis.topicPreferences,
+    sampleTitle: noteTitles[0] ?? displayName,
+    sampleBody: `公开主页未提供笔记正文。本账号分析仅依据以下公开标题：\n${noteTitles.join('\n')}`,
+    noteTitles,
+  };
+}

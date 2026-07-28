@@ -47,7 +47,7 @@ export async function getAccount(userId: string, id: string): Promise<PersonaPac
 
 export async function importAccount(
   userId: string,
-  input: Omit<PersonaPack, 'id'>,
+  input: Omit<PersonaPack, 'id'> & { sourceUrl?: string },
 ): Promise<{ id: string; displayName: string }> {
   const id = randomUUID();
   const profile = definePersona({ ...input, id: `account-${id}` });

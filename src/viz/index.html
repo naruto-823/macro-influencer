@@ -90,6 +90,10 @@
   dialog textarea { min-height:76px; resize:vertical; }
   .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
   .dialog-actions button { margin:0; }
+  .analysis { display:none; margin-top:16px; padding:14px; background:var(--bg); border:1px solid var(--line); border-radius:10px; }
+  .analysis h3 { margin:0 0 8px; color:var(--accent); }
+  .analysis dt { margin-top:10px; color:var(--dim); font-size:12px; }
+  .analysis dd { margin:2px 0; white-space:pre-wrap; }
   .log { font:12px/1.6 ui-monospace,Menlo,monospace; }
   .log div { padding:2px 0; border-bottom:1px solid #161b22; color:var(--dim); }
   .log .hl { color:var(--txt); }
@@ -149,15 +153,11 @@
 <dialog id="accountDialog">
   <form id="accountForm">
     <h2>导入小红书账号</h2>
-    <p>填写账号内容资料，系统将据此学习定位和写作风格。</p>
-    <label>账号名称</label><input name="displayName" maxlength="80" required placeholder="例如：我的职场笔记">
-    <label>账号定位</label><textarea name="positioning" required placeholder="你是谁、写给谁、提供什么价值"></textarea>
-    <label>写作风格</label><textarea name="styleGuide" required placeholder="语气、句式、结构和常用表达"></textarea>
-    <label>代表笔记标题</label><input name="sampleTitle" required placeholder="粘贴一篇代表作标题">
-    <label>代表笔记正文</label><textarea name="sampleBody" required placeholder="粘贴一篇最能代表账号风格的正文"></textarea>
-    <label>选题偏好</label><input name="topicPreferences" placeholder="用逗号分隔，例如：AI、职场、商业">
+    <p>粘贴公开主页链接，系统会读取账号简介和公开笔记并自动分析。</p>
+    <label>小红书账号主页</label><input name="url" type="url" required placeholder="https://www.xiaohongshu.com/user/profile/...">
+    <div class="analysis" id="accountAnalysis"><h3 id="analysisName"></h3><dl><dt>账号简介</dt><dd id="analysisBio"></dd><dt>账号定位</dt><dd id="analysisPositioning"></dd><dt>写作风格</dt><dd id="analysisStyle"></dd><dt>选题偏好</dt><dd id="analysisTopics"></dd><dt>分析范围</dt><dd id="analysisNotes"></dd></dl></div>
     <div class="err" id="accountError" style="color:var(--fail)"></div>
-    <div class="dialog-actions"><button type="button" id="cancelAccount">取消</button><button class="go" id="saveAccount">保存账号</button></div>
+    <div class="dialog-actions"><button type="button" id="cancelAccount">取消</button><button class="go" id="analyzeAccount">分析主页</button><button class="go" id="saveAccount" style="display:none">确认导入</button></div>
   </form>
 </dialog>
 
@@ -195,15 +195,25 @@ async function loadAccounts(selected){
     goBtn.disabled=false; if(statusEl.textContent==='尚未导入账号')statusEl.textContent='空闲';
   }
 }
-document.getElementById('importAccount').onclick=()=>accountDialog.showModal();
+let analyzedAccount=null;
+const analyzeButton=document.getElementById('analyzeAccount'),saveAccount=document.getElementById('saveAccount'),accountError=document.getElementById('accountError');
+document.getElementById('importAccount').onclick=()=>{analyzedAccount=null;accountForm.reset();document.getElementById('accountAnalysis').style.display='none';saveAccount.style.display='none';analyzeButton.style.display='';accountError.textContent='';accountDialog.showModal()};
 document.getElementById('cancelAccount').onclick=()=>accountDialog.close();
 accountForm.onsubmit=async e=>{
-  e.preventDefault(); const save=document.getElementById('saveAccount'); save.disabled=true;
-  const r=await fetch('/accounts/import',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(accountForm)))});
+  e.preventDefault(); accountError.textContent='';
+  if(!analyzedAccount){
+    analyzeButton.disabled=true;analyzeButton.textContent='正在抓取并分析…';
+    const r=await fetch('/accounts/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:new FormData(accountForm).get('url')})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok){analyzedAccount=j;document.getElementById('analysisName').textContent=j.displayName;document.getElementById('analysisBio').textContent=j.bio||'未填写';document.getElementById('analysisPositioning').textContent=j.positioning;document.getElementById('analysisStyle').textContent=j.styleGuide;document.getElementById('analysisTopics').textContent=j.topicPreferences.join('、');document.getElementById('analysisNotes').textContent='已读取 '+j.noteTitles.length+' 条公开笔记标题；主页未返回的正文不会推测。';document.getElementById('accountAnalysis').style.display='block';analyzeButton.style.display='none';saveAccount.style.display=''}
+    else accountError.textContent=j.error||'主页分析失败';
+    analyzeButton.disabled=false;analyzeButton.textContent='分析主页';return;
+  }
+  saveAccount.disabled=true;
+  const r=await fetch('/accounts/import',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...analyzedAccount,topicPreferences:analyzedAccount.topicPreferences.join(',')})});
   const j=await r.json().catch(()=>({}));
-  if(r.ok){accountDialog.close();accountForm.reset();await loadAccounts(j.id)}
-  else document.getElementById('accountError').textContent=j.error||'导入失败';
-  save.disabled=false;
+  if(r.ok){accountDialog.close();accountForm.reset();await loadAccounts(j.id)}else accountError.textContent=j.error||'导入失败';
+  saveAccount.disabled=false;
 };
 loadAccounts().catch(()=>{statusEl.textContent='账号加载失败'});
 let outputs = {}, activeSkill = null;
