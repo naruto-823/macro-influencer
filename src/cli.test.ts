@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newRunId, parseArgs, resolveGateChoice } from './cli.js';
+import { loadPersona, newRunId, parseArgs, resolveGateChoice } from './cli.js';
 
 describe('newRunId', () => {
   it('生成带 run- 前缀的非空 id', () => {
@@ -33,5 +33,13 @@ describe('parseArgs', () => {
   });
   it('解析 --persona=<id>（等号形式）', () => {
     expect(parseArgs(['--persona=demo', '--auto'])).toEqual({ persona: 'demo', auto: true });
+  });
+});
+
+describe('loadPersona', () => {
+  it('生产默认人设内置在 dist 中，不依赖根目录 personas', async () => {
+    const persona = await loadPersona('gunzi-daren');
+    expect(persona.id).toBe('gunzi-daren');
+    expect(persona.displayName).toBe('棍子大人');
   });
 });
