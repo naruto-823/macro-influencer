@@ -79,6 +79,17 @@
               border:1px solid transparent; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .run-item:hover { background:#161b22; color:var(--txt); border-color:var(--line); }
   .run-item.active { background:#161b22; color:var(--txt); border-color:var(--accent); }
+  dialog { width:min(92vw,560px); max-height:90vh; overflow:auto; color:var(--txt); background:var(--panel);
+           border:1px solid var(--line); border-radius:14px; padding:22px; }
+  dialog::backdrop { background:rgba(0,0,0,.72); }
+  dialog h2 { margin:0 0 4px; font-size:18px; }
+  dialog p { margin:0 0 16px; color:var(--dim); }
+  dialog label { display:block; margin:12px 0 5px; }
+  dialog input,dialog textarea { width:100%; padding:9px 11px; color:var(--txt); background:var(--bg);
+                                 border:1px solid var(--line); border-radius:8px; font:inherit; }
+  dialog textarea { min-height:76px; resize:vertical; }
+  .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+  .dialog-actions button { margin:0; }
   .log { font:12px/1.6 ui-monospace,Menlo,monospace; }
   .log div { padding:2px 0; border-bottom:1px solid #161b22; color:var(--dim); }
   .log .hl { color:var(--txt); }
@@ -112,10 +123,8 @@
 <header>
   <h1>🚀 百万网红 Agent <small>生产链路 · 实时</small></h1>
   <div class="spacer"></div>
-  <select id="persona">
-    <option value="gunzi-daren">棍子大人（真实人设）</option>
-    <option value="demo">小桃职场效率（示例）</option>
-  </select>
+  <select id="persona"><option value="">加载账号…</option></select>
+  <button id="importAccount">＋ 导入账号</button>
   <button class="go" id="go">▶ 开始跑</button>
   <span id="status">空闲</span>
   <button class="mini" id="logout">退出</button>
@@ -137,6 +146,21 @@
   </div>
 </div>
 
+<dialog id="accountDialog">
+  <form id="accountForm">
+    <h2>导入小红书账号</h2>
+    <p>填写账号内容资料，系统将据此学习定位和写作风格。</p>
+    <label>账号名称</label><input name="displayName" maxlength="80" required placeholder="例如：我的职场笔记">
+    <label>账号定位</label><textarea name="positioning" required placeholder="你是谁、写给谁、提供什么价值"></textarea>
+    <label>写作风格</label><textarea name="styleGuide" required placeholder="语气、句式、结构和常用表达"></textarea>
+    <label>代表笔记标题</label><input name="sampleTitle" required placeholder="粘贴一篇代表作标题">
+    <label>代表笔记正文</label><textarea name="sampleBody" required placeholder="粘贴一篇最能代表账号风格的正文"></textarea>
+    <label>选题偏好</label><input name="topicPreferences" placeholder="用逗号分隔，例如：AI、职场、商业">
+    <div class="err" id="accountError" style="color:var(--fail)"></div>
+    <div class="dialog-actions"><button type="button" id="cancelAccount">取消</button><button class="go" id="saveAccount">保存账号</button></div>
+  </form>
+</dialog>
+
 <script>
 const TITLES = {
   'hotspot.fetch':['①','热点·选题'], 'hotspot.recommend':['🎯','精选推荐'], 'topic.generate':['②','生成选题集'],
@@ -156,6 +180,32 @@ const logEl = document.getElementById('log');
 const goBtn = document.getElementById('go');
 const statusEl = document.getElementById('status');
 document.getElementById('logout').onclick=async()=>{await fetch('/logout',{method:'POST'});location.reload()};
+const personaSelect=document.getElementById('persona');
+const accountDialog=document.getElementById('accountDialog');
+const accountForm=document.getElementById('accountForm');
+async function loadAccounts(selected){
+  const accounts=await (await fetch('/accounts')).json();
+  personaSelect.innerHTML='';
+  if(!accounts.length){
+    personaSelect.add(new Option('请先导入账号',''));
+    goBtn.disabled=true; statusEl.textContent='尚未导入账号';
+  }else{
+    accounts.forEach(a=>personaSelect.add(new Option(a.displayName,a.id)));
+    if(selected)personaSelect.value=selected;
+    goBtn.disabled=false; if(statusEl.textContent==='尚未导入账号')statusEl.textContent='空闲';
+  }
+}
+document.getElementById('importAccount').onclick=()=>accountDialog.showModal();
+document.getElementById('cancelAccount').onclick=()=>accountDialog.close();
+accountForm.onsubmit=async e=>{
+  e.preventDefault(); const save=document.getElementById('saveAccount'); save.disabled=true;
+  const r=await fetch('/accounts/import',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(accountForm)))});
+  const j=await r.json().catch(()=>({}));
+  if(r.ok){accountDialog.close();accountForm.reset();await loadAccounts(j.id)}
+  else document.getElementById('accountError').textContent=j.error||'导入失败';
+  save.disabled=false;
+};
+loadAccounts().catch(()=>{statusEl.textContent='账号加载失败'});
 let outputs = {}, activeSkill = null;
 // 这些阶段照常后台运行，但不在流水线节点行单独显示；其产物并入 ① 热点·选题 面板展示。
 const HIDDEN = new Set(['hotspot.recommend','topic.generate']);
@@ -421,7 +471,8 @@ es.onerror=()=>{
 
 goBtn.onclick=async()=>{
   goBtn.disabled=true; statusEl.textContent='启动中…';
-  const p=document.getElementById('persona').value;
+  const p=personaSelect.value;
+  if(!p){statusEl.textContent='请先导入账号';goBtn.disabled=true;return;}
   const r=await fetch('/run?persona='+encodeURIComponent(p),{method:'POST'});
   if(!r.ok){ const j=await r.json().catch(()=>({})); statusEl.textContent=j.error||'启动失败'; goBtn.disabled=false; }
 };

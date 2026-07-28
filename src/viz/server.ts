@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadPersona, makeJudge, makeLlm, newRunId } from '../cli.js';
+import { makeJudge, makeLlm, newRunId } from '../cli.js';
 import { EventBus } from '../engine/events.js';
 import type {
   FinalAsset,
@@ -14,12 +14,20 @@ import type {
   SkillContext,
 } from '../engine/types.js';
 import { persistRun } from '../output/persist.js';
-import { demoPersona } from '../persona/examples/demo.js';
+import { gunziDarenPersona } from '../persona/examples/gunzi-daren.js';
 import { buildRegistry, runPipeline } from '../run.js';
 import { imageDir, renderPanel } from '../skills/image-render.js';
 import { CachedHotspotSource } from '../sources/cached-hotspot.js';
 import { MultiHotspotSource } from '../sources/web-hotspot.js';
 import { WeiboHotspotSource } from '../sources/weibo-hotspot.js';
+import {
+  ensureAccount,
+  getAccount,
+  importAccount,
+  initializeAccounts,
+  listAccounts,
+  userIdForUsername,
+} from './account-store.js';
 import { authenticateUser, createUser, initializeUsers } from './auth-store.js';
 
 // 加载本项目 .env（fox 代理 key/baseURL/model 在此），与 cli 一致。
@@ -164,7 +172,8 @@ async function startRun(userId: string, state: ClientState, personaId: string): 
     }
   };
   try {
-    const persona = personaId === 'demo' ? demoPersona : await loadPersona(personaId);
+    const persona = await getAccount(userId, personaId);
+    if (!persona) throw new Error('账号不存在或不属于当前用户');
     const writer = makeLlm();
     const bag = await runPipeline(runId, {
       llm: writer,
@@ -235,8 +244,9 @@ async function retryNode(
   }
   state.retrying = true;
   try {
-    const personaId = (bag.__personaId as string) ?? 'gunzi-daren';
-    const persona = personaId === 'demo' ? demoPersona : await loadPersona(personaId);
+    const personaId = bag.__personaId as string;
+    const persona = await getAccount(userId, personaId);
+    if (!persona) return { ok: false, error: '账号不存在或不属于当前用户' };
     const writer = makeLlm();
     const ctx: SkillContext = {
       runId,
@@ -422,6 +432,36 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/accounts') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(await listAccounts(userId)));
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/accounts/import') {
+    try {
+      const body = await readJson(req);
+      const account = await importAccount(userId, {
+        displayName: String(body.displayName ?? ''),
+        positioning: String(body.positioning ?? ''),
+        styleGuide: String(body.styleGuide ?? ''),
+        sampleNotes: [
+          { title: String(body.sampleTitle ?? ''), body: String(body.sampleBody ?? '') },
+        ],
+        topicPreferences: String(body.topicPreferences ?? '')
+          .split(/[,，\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      });
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(account));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : '导入失败' }));
+    }
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname.startsWith('/runs/')) {
     const id = decodeURIComponent(url.pathname.slice('/runs/'.length));
     // 防目录穿越：只允许实际存在的 run 目录
@@ -532,7 +572,12 @@ const server = createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url.pathname === '/run') {
-    const personaId = url.searchParams.get('persona') ?? 'gunzi-daren';
+    const personaId = url.searchParams.get('persona') ?? '';
+    if (!(await getAccount(userId, personaId))) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '请先选择自己导入的账号' }));
+      return;
+    }
     const ok = await startRun(userId, state, personaId);
     res.writeHead(ok ? 202 : 409, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(ok ? { started: true } : { error: '已有任务在跑' }));
@@ -544,6 +589,12 @@ const server = createServer(async (req, res) => {
 });
 
 await initializeUsers();
+await initializeAccounts();
+const adminUsername = process.env.AUTH_USERNAME;
+if (adminUsername) {
+  const adminId = await userIdForUsername(adminUsername);
+  if (adminId) await ensureAccount(adminId, gunziDarenPersona);
+}
 server.listen(PORT, () => {
   console.log(`\n🖥  生产链路可视化已启动： http://localhost:${PORT}`);
   console.log('   打开后点「开始跑」，用真实人设走一遍并实时观看。\n');
