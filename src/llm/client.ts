@@ -1,5 +1,9 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
 import { traceLlm, tracedFetch } from './trace.js';
+
+const execFileAsync = promisify(execFile);
 
 export interface LlmCompleteOpts {
   system?: string;
@@ -25,7 +29,7 @@ export interface LlmResearchResult {
 export interface LlmClient {
   complete(opts: LlmCompleteOpts): Promise<string>;
   completeJson<T>(opts: LlmCompleteOpts): Promise<T>;
-  /** 可选：联网深度调研（允许 WebSearch/WebFetch）。仅 claude -p 后端支持；不支持则缺省。 */
+  /** 可选：联网深度调研（允许 WebSearch/WebFetch/Codex Web Search）。 */
   research?(opts: LlmResearchOpts): Promise<LlmResearchResult>;
 }
 
@@ -149,6 +153,54 @@ export class ClaudeLlmClient implements LlmClient {
         .join('');
       return { result, outTokens: res.usage.output_tokens, extra: { stop: res.stop_reason } };
     });
+  }
+
+  /**
+   * fox 的 Anthropic 兼容接口没有 WebSearch 工具；深度调研改由本机 Codex CLI
+   * 以临时会话、只读沙箱和实时网页搜索执行，避免让普通模型模拟/编造检索。
+   */
+  async research(opts: LlmResearchOpts): Promise<LlmResearchResult> {
+    const prompt = [
+      opts.system,
+      '',
+      opts.prompt,
+      '',
+      '执行要求：',
+      '1. 必须使用实时 Web Search 核查，不得仅凭模型记忆。',
+      '2. 每条关键事实紧邻直接来源链接；优先当事人、官方、权威媒体和原始文件。',
+      '3. 搜不到就明确写“未核实”，严禁编造检索过程、链接、数字、引语或事件细节。',
+      '4. 只输出最终 markdown 调研档案，不修改任何本地文件。',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const args = [
+      'exec',
+      '--ephemeral',
+      '--ignore-user-config',
+      '--sandbox',
+      'read-only',
+      '-c',
+      'web_search="live"',
+      '-C',
+      process.cwd(),
+      prompt,
+    ];
+    return traceLlm(
+      'codex.research',
+      { inChars: prompt.length },
+      async () => {
+        const { stdout } = await execFileAsync('codex', args, {
+          // 实时联网调研偶尔需要多轮搜索；给内部调用 15 分钟完成并返回可引用来源。
+          timeout: opts.timeoutMs ?? 900_000,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+        const text = stdout.trim();
+        if (!text) throw new Error('codex exec 未返回调研内容');
+        const sources = text.match(/https?:\/\/[^\s)\]）】"'，。、]+/g) ?? [];
+        if (sources.length === 0) throw new Error('codex exec 调研未返回任何来源链接');
+        return { result: { text, online: true }, extra: { sources: sources.length } };
+      },
+    );
   }
 
   /**

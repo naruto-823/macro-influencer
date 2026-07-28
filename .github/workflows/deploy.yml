@@ -1,0 +1,16 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: naruto-823/docker-vps-deploy-template/.github/workflows/reusable-deploy.yml@v1
+    with:
+      app_name: macro-influencer
+      compose_file: compose.production.yml
+      health_url: ${{ vars.PRODUCTION_URL }}/health
+      test_command: corepack enable && corepack prepare pnpm@9.12.0 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test
+    secrets: inherit

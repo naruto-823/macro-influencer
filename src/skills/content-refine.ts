@@ -1,4 +1,5 @@
 import type { DeepResearch, Draft, RefineResult, RefineRound, Skill } from '../engine/types.js';
+import { charCount, MIN_FINAL_BODY_CHARS } from './content-draft.js';
 
 /** 一轮裁判的结构化输出。 */
 interface JudgeVerdict {
@@ -123,6 +124,7 @@ export const contentRefineSkill: Skill<RefineResult> = {
           '',
           '请先输出【修订后的完整正文】（纯文本，从第一句正文开始，不要 JSON、不要 markdown、不要任何前后缀解释、不要重复标题）。',
           '正文必须是改完的整篇、确有实质改动、把上面每条硬伤都修掉；但只动本维度涉及的地方，其余保持原样。',
+          `正文不得少于 ${MIN_FINAL_BODY_CHARS} 字，不能以“精炼”为由删成短稿。`,
           '正文写完后，另起一行写一行分隔符 ===CHANGES=== ，其后逐行列出你做了哪些改动（每行一条，对应上面的硬伤）。',
         ].join('\n'),
       });
@@ -139,7 +141,8 @@ export const contentRefineSkill: Skill<RefineResult> = {
               .slice(0, 20)
           : [];
       // 采纳门槛：正文够长（防空/截断）且确有改动。标题不在精修范围，沿用原标题。
-      const applied = newBody.length >= 300 && newBody !== current.body.trim();
+      const applied =
+        charCount(newBody) >= MIN_FINAL_BODY_CHARS && newBody !== current.body.trim();
       if (applied) current = { title: current.title, body: newBody };
       rounds.push({
         round: i + 1,

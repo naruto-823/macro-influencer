@@ -11,6 +11,7 @@ describe('persistRun', () => {
       'asset.assemble': {
         titles: ['标题1'],
         body: '正文',
+        stagedBody: '阶段版正文',
         imagePrompts: ['封面'],
         publishTips: '晚8点',
       },
@@ -21,5 +22,6 @@ describe('persistRun', () => {
     const readme = readFileSync(join(dir, 'README.md'), 'utf8');
     expect(readme).toContain('标题1');
     expect(readme).toContain('封面');
+    expect(readme).toContain('阶段版正文');
   });
 });

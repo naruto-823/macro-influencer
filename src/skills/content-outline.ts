@@ -15,7 +15,7 @@ export const contentOutlineSkill: Skill<Outline> = {
 
     const research = ctx.bag['deep.search'] as DeepResearch | undefined;
     const researchBlock = research?.report
-      ? `\n\n【深度调研档案（真实事实，骨架要点尽量取材于此）】：\n${research.report}`
+      ? `\n\n【${research.online ? '联网查证档案' : '有限证据档案（未联网，仅可使用有来源限定的内容）'}】：\n${research.report}`
       : '';
 
     const outline = await ctx.llm.completeJson<Outline>({

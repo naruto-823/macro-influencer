@@ -36,8 +36,8 @@ const RUNS_DIR = resolve('runs');
 let running = false;
 let retrying = false;
 
-/** 单步重试上限：refine/deepsearch/出图都可能很慢，给 20 分钟。 */
-const NODE_RETRY_TIMEOUT_MS = 1_200_000;
+/** 单步重试上限：须长于 deep.search 自身的 20 分钟，给收尾和结果落盘留余量。 */
+const NODE_RETRY_TIMEOUT_MS = 1_500_000;
 
 /** 列出历史 run（读 runs/<id>/result.json），按时间倒序，附带一个标题用于展示。 */
 async function listRuns(): Promise<Array<{ id: string; title: string; done: boolean }>> {
@@ -211,6 +211,12 @@ async function retryNode(
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+
+  if (req.method === 'GET' && url.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ status: 'ok', service: 'macro-influencer' }));
+    return;
+  }
 
   if (req.method === 'GET' && url.pathname === '/') {
     const html = await readFile(INDEX_HTML, 'utf8');

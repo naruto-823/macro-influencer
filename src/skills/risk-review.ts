@@ -7,9 +7,15 @@ import type {
   Skill,
 } from '../engine/types.js';
 import { riskLevel, scanSensitive } from '../guardrails/sensitive-words.js';
+import { charCount, MIN_FINAL_BODY_CHARS } from './content-draft.js';
 
 interface RawCompliance {
   fixes: Array<{ from?: string; to?: string; rule?: string }>;
+}
+
+interface RawSanitizedDraft {
+  title?: string;
+  body?: string;
 }
 
 /**
@@ -96,6 +102,56 @@ export const riskReviewSkill: Skill<RiskReport> = {
         fixes.push({ from, to, rule: String(f.rule ?? '') });
       }
       // from 在正文里精确匹配不到的（LLM 引述不准）就跳过，避免误伤——这条会留在 fixes 外、可在日志看到。
+    }
+    // 模型有时会返回空 fixes，或 from 并非原文的精确子串，导致“说要净化但实际 0 修改”。
+    // 有非绿事实却一处都没改时，强制走整稿净化兜底，绝不允许原稿原样通过。
+    if (unverified.length > 0 && fixes.length === 0) {
+      ctx.emit('  逐句净化未命中，启动整稿事实净化兜底');
+      const sanitized = await ctx.llm.completeJson<RawSanitizedDraft>({
+        schema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            body: { type: 'string' },
+          },
+          required: ['title', 'body'],
+        },
+        system:
+          '你是事实编辑。必须完整保留文章的观点、结构和已核实事实，同时删除、弱化或加限定语处理所有未核实说法。禁止添加任何新数字、新引语、新事实；禁止原样返回。',
+        prompt: [
+          '请净化下面的稿件。',
+          '处理规则：',
+          '1. 🔴说法必须删除，或改成不依赖该事实的观点表达。',
+          '2. 🟡说法必须删除具体数字/日期/引语/绝对断言，改成“据公开信息”“有媒体报道”“可能”等审慎定性表达；没有可靠依据时直接删除。',
+          '3. 不得新增事实，不得改变核心观点和段落顺序。',
+          '4. 输出的 title/body 必须与原稿不同。',
+          `5. 正文不得少于 ${MIN_FINAL_BODY_CHARS} 字；只做必要替换，不得压缩成短稿。`,
+          '',
+          '【必须处理的非绿事实】',
+          ...unverified.map(
+            (c) => `· ${c.confidence === 'red' ? '🔴' : '🟡'} ${c.claim}；原因：${c.basis}`,
+          ),
+          '',
+          `【原标题】${title}`,
+          `【原正文】\n${body}`,
+        ].join('\n'),
+      });
+      const nextTitle = String(sanitized?.title ?? '').trim();
+      const nextBody = String(sanitized?.body ?? '').trim();
+      if (
+        !nextTitle ||
+        charCount(nextBody) < MIN_FINAL_BODY_CHARS ||
+        (nextTitle === title && nextBody === body)
+      ) {
+        throw new Error('事实净化失败：存在非绿事实，但模型未产出有效修改稿');
+      }
+      title = nextTitle;
+      body = nextBody;
+      fixes.push({
+        from: '整篇原稿',
+        to: '事实净化稿',
+        rule: `事实存疑兜底（处理 ${unverified.length} 条）`,
+      });
     }
     const rewritten: Draft = { title, body };
     ctx.emit(`  合规+净化：实际应用 ${fixes.length}/${rawFixes.length} 处改写`);

@@ -1,4 +1,4 @@
-import type { DeepResearch, RecommendedHotspot, Skill, Topic } from '../engine/types.js';
+import type { DeepResearch, Hotspot, RecommendedHotspot, Skill, Topic } from '../engine/types.js';
 
 /** 从调研报告里抽出真实链接（http/https），去重，最多 12 条，给 UI 列「参考资料」。 */
 function extractSources(report: string): string[] {
@@ -21,7 +21,43 @@ export const deepSearchSkill: Skill<DeepResearch> = {
 
     // 选题往往脱胎于某条精选热点，带上它的「爆点/角度」让调研更聚焦。
     const recs = (ctx.bag['hotspot.recommend'] as RecommendedHotspot[]) ?? [];
-    const rec = recs.find((r) => topic.title.includes(r.title) || r.title.includes(topic.title));
+    const overlapScore = (a: string, b: string): number => {
+      const clean = a.replace(/[\s\p{P}]/gu, '');
+      let score = 0;
+      for (let i = 0; i <= clean.length - 4; i++) {
+        if (b.includes(clean.slice(i, i + 4))) score++;
+      }
+      return score;
+    };
+    const exactRec = recs.find(
+      (r) => topic.title.includes(r.title) || r.title.includes(topic.title),
+    );
+    const rankedRec = recs
+      .map((r) => ({ r, score: overlapScore(r.title, topic.title) }))
+      .sort((a, b) => b.score - a.score)[0];
+    const rec =
+      exactRec ??
+      (rankedRec && rankedRec.score > 0
+        ? rankedRec.r
+        : recs.length === 1
+          ? recs[0]
+          : undefined);
+    const hotspots = (ctx.bag['hotspot.fetch'] as Hotspot[]) ?? [];
+    const seed = hotspots.find(
+      (h) =>
+        h.title === rec?.title ||
+        topic.title.includes(h.title) ||
+        h.title.includes(topic.title),
+    );
+    const seedEvidence = seed
+      ? [
+          `原始热榜来源：${seed.source}`,
+          `原始热榜标题：${seed.title}`,
+          seed.summary ? `原始热榜摘要：${seed.summary}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : '（没有可用的原始热榜摘要）';
 
     const system =
       '你是顶级深度调研记者。你必须用 WebSearch/WebFetch 去检索真实、可靠、尽量新的公开资料，' +
@@ -31,6 +67,7 @@ export const deepSearchSkill: Skill<DeepResearch> = {
       `切入角度：${topic.angle}`,
       rec ? `关联热点：${rec.title}（来源：${rec.source}）` : '',
       rec ? `爆点提示：${rec.reason}` : '',
+      seedEvidence,
       '',
       '【检索策略 —— 必须照做，这是中文热点，不许偷懒】：',
       '· 别上来就搜整句论点。先搜核心实体：人名 / 公司名 / 事件名（连带其拼音或英文名），再逐步搜具体细节、时间、数据。换多种说法多搜几轮。',
@@ -54,6 +91,32 @@ export const deepSearchSkill: Skill<DeepResearch> = {
       .filter(Boolean)
       .join('\n');
 
+    const offlineSystem =
+      '你是严谨的资料编辑。当前环境没有联网能力，也没有 WebSearch/WebFetch。' +
+      '严禁声称自己搜索过必应、百度或任何网站，严禁输出 <web_search>/<web_fetch> 标签，严禁编造链接、数据、引语和检索次数。' +
+      '只能使用提示中给出的“原始热榜来源/标题/摘要”作为本事件的事实材料；模型常识只能用于不带具体数字的背景说明，并明确标成背景常识。';
+    const offlinePrompt = [
+      `选题：${topic.title}`,
+      `角度：${topic.angle}`,
+      '',
+      '【当前唯一可追溯的事件材料】',
+      seedEvidence,
+      '',
+      '请生成一份“有限证据档案”：',
+      '1. 先逐条复述原始热榜摘要明确提供的事实，不得扩写摘要没有的情节。',
+      '2. 把无法由摘要确认的内容列入“不可使用的信息”，供写手避开。',
+      '3. 可以给出不依赖具体数据的行业背景与写作角度，但必须标注“背景分析，不是本事件事实”。',
+      '4. 明确写出来源名称。不要假装检索，不要输出虚构参考链接。',
+      seed?.summary
+        ? '材料足以支持有限度写作；正文必须使用“据该热榜题干/摘要”一类来源限定。'
+        : [
+            '当前只有热榜题干，没有摘要。仍需产出可供后续写作的档案，不要建议换题、不要拒绝完成。',
+            '把“该标题出现在上述来源热榜”列为唯一事件事实；标题中出现的数字、排名、身份和因果均视为未经核实的题干说法，不能转述成已证实事实。',
+            '其余内容只提供不带具体数字的通用行业背景、分析框架、应核实的问题清单和安全写作角度，并逐段标注“背景分析，不是本事件事实”。',
+            '后续正文应写成基于热榜题干引发的趋势分析，不得写成对题干细节的新闻确认稿。',
+          ].join('\n'),
+    ].join('\n');
+
     let report: string;
     let online: boolean;
     if (typeof ctx.llm.research === 'function') {
@@ -64,20 +127,24 @@ export const deepSearchSkill: Skill<DeepResearch> = {
       } catch (e) {
         // 联网调研失败（超时/工具不可用）→ 退回模型知识，保证流水线不断；正文里标注无实时检索。
         ctx.emit(`  联网调研失败，退回模型知识：${e instanceof Error ? e.message : String(e)}`);
-        report = await ctx.llm.complete({ system, prompt });
+        report = await ctx.llm.complete({ system: offlineSystem, prompt: offlinePrompt });
         online = false;
       }
     } else {
-      // 后端不支持联网（如 fox）→ 用模型知识尽力调研。
-      report = await ctx.llm.complete({ system, prompt });
+      // 后端不支持联网（如 fox）→ 只基于原始热榜材料整理，禁止伪造检索。
+      report = await ctx.llm.complete({ system: offlineSystem, prompt: offlinePrompt });
       online = false;
     }
 
-    const sources = extractSources(report);
+    // 离线模型即使吐出 URL 也不可信，绝不把它们展示成“实际引用来源”。
+    const sources = online ? extractSources(report) : [];
+    if (!online && /<web_(?:search|fetch)>|检索(?:了|过程|次数)|必应.{0,8}搜索|百度.{0,8}搜索/i.test(report)) {
+      throw new Error('离线调研伪造了搜索过程，已拦截；请重试或更换选题');
+    }
     ctx.emit(
       online
         ? `  联网调研完成：${sources.length} 条来源`
-        : `  调研完成（未联网，基于模型知识）：${sources.length} 条来源`,
+        : `  有限证据整理完成（未联网，依据 ${seed?.source ?? '原始热榜'}${seed?.summary ? '题干与摘要' : '题干'}）`,
     );
     return { topic: topic.title, report, sources, online };
   },

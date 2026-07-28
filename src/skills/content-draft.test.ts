@@ -25,15 +25,16 @@ function ctx(llm: FakeLlmClient, gateChoice: string): SkillContext {
 
 describe('content.draft', () => {
   it('按 gate 选中的选题 id 出初稿，并把选中选题写入 prompt', async () => {
-    const llm = new FakeLlmClient([JSON.stringify({ title: '标题A', body: '正文A' })]);
+    const body = '正文A'.repeat(500);
+    const llm = new FakeLlmClient([JSON.stringify({ title: '标题A', body })]);
     const draft = await contentDraftSkill.run(ctx(llm, 't2'));
     expect(draft.title).toBe('标题A');
-    expect(draft.body).toBe('正文A');
+    expect(draft.body).toBe(body);
     expect(llm.calls[0]?.prompt).toContain('选题2');
   });
 
   it('gate 选了不存在的 id 则退回第一个选题', async () => {
-    const llm = new FakeLlmClient([JSON.stringify({ title: 't', body: 'b' })]);
+    const llm = new FakeLlmClient([JSON.stringify({ title: 't', body: '长正文'.repeat(500) })]);
     await contentDraftSkill.run(ctx(llm, 'nope'));
     expect(llm.calls[0]?.prompt).toContain('选题1');
   });

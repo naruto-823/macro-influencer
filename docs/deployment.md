@@ -1,0 +1,48 @@
+# 生产部署
+
+本项目调用 `naruto-823/docker-vps-deploy-template@v1` 发布到单台 VPS。
+
+## GitHub 配置
+
+仓库 Actions Secrets：
+
+- `DEPLOY_HOST`：VPS 公网 IP
+- `DEPLOY_USER`：建议为 `deploy`
+- `DEPLOY_SSH_KEY`：本项目独立部署私钥
+- `DEPLOY_KNOWN_HOSTS`：经人工核对的 SSH host key
+- `APP_ENV`：生产环境变量，至少包含 `ANTHROPIC_API_KEY`；使用代理时同时配置 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_MODEL`
+
+仓库 Actions Variable：
+
+- `PRODUCTION_URL`：不带末尾斜杠的公网 HTTPS 地址，例如 `https://influencer.example.com`
+
+`APP_ENV` 示例：
+
+```dotenv
+ANTHROPIC_API_KEY=replace-me
+ANTHROPIC_BASE_URL=https://your-compatible-gateway.example.com
+ANTHROPIC_MODEL=claude-sonnet-4-6
+LLM_BACKEND=fox
+HOST_PORT=5180
+```
+
+## 公网网关
+
+生产 Compose 只把应用发布到 VPS 回环地址 `127.0.0.1:5180`，避免与同机已有 Caddy 的 80/443 端口冲突。共享 Caddy 需要增加一个站点：
+
+```caddyfile
+influencer.example.com {
+    reverse_proxy host.docker.internal:5180
+    encode zstd gzip
+}
+```
+
+若共享 Caddy 直接运行在宿主机，使用 `reverse_proxy 127.0.0.1:5180`。若 Caddy 在 Docker 中，需确保其能解析 `host.docker.internal`（Linux 下映射到 `host-gateway`）。
+
+部署成功后，`https://influencer.example.com/health` 应返回：
+
+```json
+{"status":"ok","service":"macro-influencer"}
+```
+
+运行产物与热点缓存分别保存在 Docker named volumes `runs_data`、`cache_data` 中，发布新 commit 不会丢失。

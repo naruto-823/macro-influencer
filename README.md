@@ -15,6 +15,10 @@ pnpm start          # 用示例人设跑一次，产物落到 runs/<id>/
 pnpm test           # 跑全部单测
 ```
 
+## 生产部署
+
+项目通过公共 Docker VPS Workflow 自动部署，配置方式见 [`docs/deployment.md`](docs/deployment.md)。
+
 ## 加一个账号
 
 在 `personas/` 写一份 `definePersona({...})`，描述定位/风格/历史样本即可。

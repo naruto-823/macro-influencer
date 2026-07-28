@@ -18,10 +18,39 @@ function ctx(llm: SkillContext['llm'], gateChoice: string): SkillContext {
     persona: {} as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources
     sources: {} as any,
-    bag: { 'topic.generate': topics, 'gate.topic.generate': gateChoice },
+    bag: {
+      'topic.generate': topics,
+      'gate.topic.generate': gateChoice,
+      'hotspot.fetch': [
+        {
+          id: 'h1',
+          title: '孙宇晨买画',
+          heat: 1,
+          source: '测试热榜',
+          keywords: [],
+          summary: '测试热榜摘要提供了事件背景。',
+        },
+        {
+          id: 'h2',
+          title: '查理芒格的一生',
+          heat: 1,
+          source: '测试热榜',
+          keywords: [],
+          summary: '测试热榜摘要提供了人物背景。',
+        },
+      ],
+    },
     emit: () => {},
     signal: new AbortController().signal,
   };
+}
+
+function ctxWithoutSummary(llm: SkillContext['llm']): SkillContext {
+  const value = ctx(llm, 't2');
+  value.bag['hotspot.fetch'] = [
+    { id: 'h1', title: '孙宇晨买画', heat: 1, source: '测试热榜', keywords: [] },
+  ];
+  return value;
 }
 
 describe('deep.search', () => {
@@ -30,8 +59,9 @@ describe('deep.search', () => {
     const res = await deepSearchSkill.run(ctx(llm, 't2'));
     expect(res.online).toBe(false);
     expect(res.topic).toBe('孙宇晨买画');
-    expect(res.sources).toEqual(['https://example.com/a']);
+    expect(res.sources).toEqual([]);
     expect(llm.calls[0]?.prompt).toContain('孙宇晨买画');
+    expect(llm.calls[0]?.system).toContain('严禁声称自己搜索过');
   });
 
   it('后端支持 research 时走联网，online=true，从报告提取去重链接', async () => {
@@ -72,5 +102,14 @@ describe('deep.search', () => {
     const res = await deepSearchSkill.run(ctx(llm, 't1'));
     expect(res.online).toBe(false);
     expect(res.report).toBe('退回模型知识的档案');
+  });
+
+  it('联网不可用且热榜没有摘要时，按题干生成有限证据档案而不中断', async () => {
+    const llm = new FakeLlmClient(['仅依据热榜题干的有限证据档案']);
+    const res = await deepSearchSkill.run(ctxWithoutSummary(llm));
+    expect(res.online).toBe(false);
+    expect(res.report).toContain('有限证据档案');
+    expect(llm.calls[0]?.prompt).toContain('不要建议换题');
+    expect(llm.calls[0]?.prompt).toContain('唯一事件事实');
   });
 });

@@ -50,19 +50,15 @@ export const STAGES: Stage[] = [
     skillName: 'topic.generate',
     gateAfter: { question: '选择一个选题（输入 id）', options: topicGateOptions },
   },
-  { skillName: 'deep.search', timeoutMs: 600_000 },
+  // 内部联网调用最多 15 分钟；外层多留 5 分钟供降级整理与结果落盘。
+  { skillName: 'deep.search', timeoutMs: 1_200_000 },
   { skillName: 'content.outline' },
   { skillName: 'content.draft' },
   // 多轮精修（每维度：fox 裁判 + claude-p 整篇改写，后者偶尔回退 fox），给足时间。
   { skillName: 'content.refine', timeoutMs: 1_500_000 },
-  {
-    skillName: 'fact.check',
-    gateAfter: {
-      question: '事实核查完毕（关注🔴存疑项），是否继续？',
-      options: ['继续', '打回'],
-      haltOn: ['打回'],
-    },
-  },
+  // 事实核查发现的🔴/🟡项不再交给用户手工放行；下一步风控会自动删除、
+  // 弱化或加限定语。修复后的全文仍会在风控卡点展示，供最终确认。
+  { skillName: 'fact.check' },
   {
     skillName: 'risk.review',
     gateAfter: { question: '风控结果是否通过？', options: ['通过', '打回'], haltOn: ['打回'] },
