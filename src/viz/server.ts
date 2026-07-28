@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { IncomingMessage } from 'node:http';
@@ -45,8 +45,8 @@ interface ClientState {
   events: PipelineEvent[];
 }
 const clients = new Map<string, ClientState>();
-function stateFor(clientId: string): ClientState {
-  let state = clients.get(clientId);
+function stateFor(userId: string): ClientState {
+  let state = clients.get(userId);
   if (!state) {
     state = {
       bus: new EventBus(),
@@ -56,21 +56,66 @@ function stateFor(clientId: string): ClientState {
       pendingFailure: null,
       events: [],
     };
-    clients.set(clientId, state);
+    clients.set(userId, state);
   }
   return state;
 }
-function requestClientId(req: IncomingMessage): string | undefined {
-  const value = req.headers.cookie?.match(/(?:^|;\s*)mi_client=([a-zA-Z0-9-]{8,64})/)?.[1];
-  return value;
+const AUTH_USERNAME = process.env.AUTH_USERNAME ?? '';
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? '';
+const AUTH_SESSION_SECRET = process.env.AUTH_SESSION_SECRET ?? '';
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+function cookie(req: IncomingMessage, name: string): string | undefined {
+  return req.headers.cookie
+    ?.split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
 }
+function signature(value: string): string {
+  return createHmac('sha256', AUTH_SESSION_SECRET).update(value).digest('base64url');
+}
+function sessionFor(userId: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({ userId, expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000 }),
+  ).toString('base64url');
+  return `${payload}.${signature(payload)}`;
+}
+function requestUserId(req: IncomingMessage): string | undefined {
+  if (!AUTH_USERNAME || !AUTH_PASSWORD || !AUTH_SESSION_SECRET) return undefined;
+  const token = cookie(req, 'mi_session');
+  if (!token) return undefined;
+  const [payload, supplied] = token.split('.');
+  if (!payload || !supplied) return undefined;
+  const expected = signature(payload);
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString()) as {
+      userId?: string;
+      expiresAt?: number;
+    };
+    if (parsed.userId !== AUTH_USERNAME || (parsed.expiresAt ?? 0) < Date.now()) return undefined;
+    return parsed.userId;
+  } catch {
+    return undefined;
+  }
+}
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.from(chunk));
+  if (chunks.reduce((sum, chunk) => sum + chunk.length, 0) > 16_384) throw new Error('请求过大');
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+}
+const LOGIN_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 百万网红 Agent</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1117;color:#e6edf3;font:15px -apple-system,"PingFang SC",sans-serif}.card{width:min(92vw,380px);padding:28px;background:#161b22;border:1px solid #30363d;border-radius:14px}h1{font-size:20px;margin:0 0 6px}.sub{color:#8b949e;margin-bottom:22px}label{display:block;margin:12px 0 5px}input,button{width:100%;padding:11px 12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font:inherit}button{margin-top:18px;background:#8957e5;border-color:#8957e5;font-weight:600;cursor:pointer}.err{min-height:22px;color:#f85149;margin-top:10px}</style></head><body><form class="card" id="login"><h1>🚀 百万网红 Agent</h1><div class="sub">登录后才能启动生产任务</div><label>账号</label><input name="username" autocomplete="username" required autofocus><label>密码</label><input name="password" type="password" autocomplete="current-password" required><button>登录</button><div class="err" id="err"></div></form><script>document.getElementById('login').onsubmit=async e=>{e.preventDefault();const b=e.currentTarget.querySelector('button');b.disabled=true;const f=new FormData(e.currentTarget);const r=await fetch('/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(f))});if(r.ok)location.href='/';else{document.getElementById('err').textContent='账号或密码错误';b.disabled=false}}</script></body></html>`;
 
 /** 单步重试上限：须长于 deep.search 自身的 20 分钟，给收尾和结果落盘留余量。 */
 const NODE_RETRY_TIMEOUT_MS = 1_500_000;
 
 /** 列出历史 run（读 runs/<id>/result.json），按时间倒序，附带一个标题用于展示。 */
 async function listRuns(
-  clientId: string,
+  userId: string,
 ): Promise<Array<{ id: string; title: string; done: boolean }>> {
   let entries: string[] = [];
   try {
@@ -82,7 +127,7 @@ async function listRuns(
   for (const id of entries) {
     try {
       const bag = JSON.parse(await readFile(join(RUNS_DIR, id, 'result.json'), 'utf8'));
-      if (bag.__clientId !== clientId) continue;
+      if (bag.__userId !== userId) continue;
       const asset = bag['asset.assemble'] as { titles?: string[] } | undefined;
       const draft = bag['content.draft'] as { title?: string } | undefined;
       runs.push({ id, title: asset?.titles?.[0] ?? draft?.title ?? '(未完成)', done: !!asset });
@@ -95,7 +140,7 @@ async function listRuns(
 }
 
 /** 触发一次真跑（交互卡点：选题/风控需在网页里点选），事件经 bus 广播给所有 SSE 连接。 */
-async function startRun(clientId: string, state: ClientState, personaId: string): Promise<boolean> {
+async function startRun(userId: string, state: ClientState, personaId: string): Promise<boolean> {
   if (state.running) return false;
   state.running = true;
   state.pendingGate = null;
@@ -104,7 +149,7 @@ async function startRun(clientId: string, state: ClientState, personaId: string)
   // 增量落盘：每完成一步/每个卡点都把已生成的内容写盘，
   // 这样即便后面失败、中断、或服务重启，已经产出的（选题/初稿/打磨/成品）也都在历史里、刷新可见。
   const liveBag: Record<string, unknown> = {};
-  liveBag.__clientId = clientId;
+  liveBag.__userId = userId;
   // 记下这条 run 用的人设 id，单节点重试时要据此重建 ctx。
   liveBag.__personaId = personaId;
   void persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
@@ -148,7 +193,7 @@ async function startRun(clientId: string, state: ClientState, personaId: string)
         onEvent,
       },
     });
-    bag.__clientId = clientId;
+    bag.__userId = userId;
     bag.__personaId = personaId;
     const dir = await persistRun(RUNS_DIR, runId, bag);
     state.bus.emit({ type: 'run.done', runId, dir });
@@ -169,7 +214,7 @@ async function startRun(clientId: string, state: ClientState, personaId: string)
  * 回写 result.json[skill]。进度经 bus 广播，UI 能看到该节点 running→done。
  */
 async function retryNode(
-  clientId: string,
+  userId: string,
   state: ClientState,
   runId: string,
   skillName: string,
@@ -185,7 +230,7 @@ async function retryNode(
   let bag: Record<string, unknown>;
   try {
     bag = JSON.parse(await readFile(resultPath, 'utf8'));
-    if (bag.__clientId !== clientId) return { ok: false, error: '找不到该 run' };
+    if (bag.__userId !== userId) return { ok: false, error: '找不到该 run' };
   } catch {
     return { ok: false, error: '找不到该 run' };
   }
@@ -247,19 +292,67 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && url.pathname === '/login') {
+    try {
+      const body = await readJson(req);
+      const valid =
+        !!AUTH_USERNAME &&
+        !!AUTH_PASSWORD &&
+        !!AUTH_SESSION_SECRET &&
+        body.username === AUTH_USERNAME &&
+        body.password === AUTH_PASSWORD;
+      if (!valid) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '账号或密码错误' }));
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': `mi_session=${sessionFor(AUTH_USERNAME)}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`,
+      });
+      res.end(JSON.stringify({ ok: true }));
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '非法请求' }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/logout') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': 'mi_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict',
+    });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  const userId = requestUserId(req);
+
   if (req.method === 'GET' && url.pathname === '/') {
+    if (!userId) {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      res.end(LOGIN_HTML);
+      return;
+    }
     const html = await readFile(INDEX_HTML, 'utf8');
-    const clientId = requestClientId(req) ?? randomUUID();
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
-      'Set-Cookie': `mi_client=${clientId}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`,
+      'Cache-Control': 'no-store',
     });
     res.end(html);
     return;
   }
 
-  const clientId = requestClientId(req) ?? 'anonymous';
-  const state = stateFor(clientId);
+  if (!userId) {
+    res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ error: '请先登录' }));
+    return;
+  }
+  const state = stateFor(userId);
 
   if (req.method === 'GET' && url.pathname === '/events') {
     res.writeHead(200, {
@@ -297,7 +390,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     try {
-      if (!(await listRuns(clientId)).some((r) => r.id === runId)) throw new Error('forbidden');
+      if (!(await listRuns(userId)).some((r) => r.id === runId)) throw new Error('forbidden');
       const buf = await readFile(join(RUNS_DIR, runId, 'imgs', name));
       // 不缓存：同名图会被重出/重试覆盖，缓存会让你一直看到旧图。
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
@@ -311,14 +404,14 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/runs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(await listRuns(clientId)));
+    res.end(JSON.stringify(await listRuns(userId)));
     return;
   }
 
   if (req.method === 'GET' && url.pathname.startsWith('/runs/')) {
     const id = decodeURIComponent(url.pathname.slice('/runs/'.length));
     // 防目录穿越：只允许实际存在的 run 目录
-    const runs = await listRuns(clientId);
+    const runs = await listRuns(userId);
     if (!runs.some((r) => r.id === id)) {
       res.writeHead(404);
       res.end('no such run');
@@ -370,13 +463,13 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/node-retry') {
     const runId = url.searchParams.get('run') ?? '';
     const skillName = url.searchParams.get('skill') ?? '';
-    const runs = await listRuns(clientId);
+    const runs = await listRuns(userId);
     if (!runs.some((r) => r.id === runId) || !skillName) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '非法参数' }));
       return;
     }
-    const r = await retryNode(clientId, state, runId, skillName);
+    const r = await retryNode(userId, state, runId, skillName);
     res.writeHead(r.ok ? 200 : state.running || state.retrying ? 409 : 400, {
       'Content-Type': 'application/json',
     });
@@ -388,7 +481,7 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/img-retry') {
     const runId = url.searchParams.get('run') ?? '';
     const index = Number(url.searchParams.get('index'));
-    const runs = await listRuns(clientId);
+    const runs = await listRuns(userId);
     if (!runs.some((r) => r.id === runId) || !Number.isInteger(index) || index < 0) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '非法参数' }));
@@ -426,7 +519,7 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/run') {
     const personaId = url.searchParams.get('persona') ?? 'gunzi-daren';
-    const ok = await startRun(clientId, state, personaId);
+    const ok = await startRun(userId, state, personaId);
     res.writeHead(ok ? 202 : 409, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(ok ? { started: true } : { error: '已有任务在跑' }));
     return;

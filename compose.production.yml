@@ -12,6 +12,9 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       WEIBO_COOKIE: ${WEIBO_COOKIE:-}
+      AUTH_USERNAME: ${AUTH_USERNAME:?AUTH_USERNAME must be set}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?AUTH_PASSWORD must be set}
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:?AUTH_SESSION_SECRET must be set}
     ports:
       # 共享 Caddy 在另一个 Docker network，经宿主机网关访问此端口。
       # VPS 防火墙只开放 22/80/443，5180 不对公网放行。
