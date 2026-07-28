@@ -21,7 +21,12 @@ function validProfileUrl(raw: string): URL {
   ) {
     throw new Error('请粘贴有效的小红书用户主页链接');
   }
-  url.search = '';
+  const allowed = new URLSearchParams();
+  for (const key of ['xsec_token', 'xsec_source']) {
+    const value = url.searchParams.get(key);
+    if (value) allowed.set(key, value);
+  }
+  url.search = allowed.toString();
   url.hash = '';
   return url;
 }
@@ -83,7 +88,8 @@ export async function analyzeXhsProfile(
     },
   });
   return {
-    sourceUrl: url.toString(),
+    // xsec_token 仅用于本次抓取，不持久化到账号资料。
+    sourceUrl: `${url.origin}${url.pathname}`,
     displayName,
     bio,
     positioning: analysis.positioning,
