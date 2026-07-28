@@ -118,6 +118,7 @@
   </select>
   <button class="go" id="go">▶ 开始跑</button>
   <span id="status">空闲</span>
+  <button class="mini" id="logout">退出</button>
 </header>
 
 <div class="wrap">
@@ -154,6 +155,7 @@ const banner = document.getElementById('banner');
 const logEl = document.getElementById('log');
 const goBtn = document.getElementById('go');
 const statusEl = document.getElementById('status');
+document.getElementById('logout').onclick=async()=>{await fetch('/logout',{method:'POST'});location.reload()};
 let outputs = {}, activeSkill = null;
 // 这些阶段照常后台运行，但不在流水线节点行单独显示；其产物并入 ① 热点·选题 面板展示。
 const HIDDEN = new Set(['hotspot.recommend','topic.generate']);
