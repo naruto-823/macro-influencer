@@ -30,7 +30,6 @@ services:
       AUTH_USERNAME: ${AUTH_USERNAME:?AUTH_USERNAME must be set}
       AUTH_PASSWORD: ${AUTH_PASSWORD:?AUTH_PASSWORD must be set}
       AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:?AUTH_SESSION_SECRET must be set}
-      REGISTRATION_INVITE_CODE: ${REGISTRATION_INVITE_CODE:?REGISTRATION_INVITE_CODE must be set}
       DATABASE_URL: postgresql://macro_influencer:${POSTGRES_PASSWORD}@db:5432/macro_influencer
     depends_on:
       db:
