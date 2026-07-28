@@ -24,6 +24,7 @@ export function makeJudge(writer: LlmClient): LlmClient {
 }
 import { persistRun } from './output/persist.js';
 import { demoPersona } from './persona/examples/demo.js';
+import { gunziDarenPersona } from './persona/examples/gunzi-daren.js';
 import type { PersonaPack } from './persona/persona-pack.js';
 import { runPipeline } from './run.js';
 import { CachedHotspotSource } from './sources/cached-hotspot.js';
@@ -63,6 +64,8 @@ export function parseArgs(argv: string[]): CliArgs {
 
 /** 从 personas/<id>.ts|.js 动态加载一份 PersonaPack（取 default 或第一个导出）。 */
 export async function loadPersona(id: string): Promise<PersonaPack> {
+  // 生产默认人设随 TypeScript 一起编译进 dist，容器无需依赖 gitignored 的本地 personas/。
+  if (id === gunziDarenPersona.id) return gunziDarenPersona;
   let lastErr: unknown;
   for (const ext of ['.ts', '.js']) {
     try {
