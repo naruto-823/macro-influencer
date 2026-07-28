@@ -20,6 +20,7 @@ import { imageDir, renderPanel } from '../skills/image-render.js';
 import { CachedHotspotSource } from '../sources/cached-hotspot.js';
 import { MultiHotspotSource } from '../sources/web-hotspot.js';
 import { WeiboHotspotSource } from '../sources/weibo-hotspot.js';
+import { authenticateUser, createUser, initializeUsers } from './auth-store.js';
 
 // 加载本项目 .env（fox 代理 key/baseURL/model 在此），与 cli 一致。
 try {
@@ -60,9 +61,8 @@ function stateFor(userId: string): ClientState {
   }
   return state;
 }
-const AUTH_USERNAME = process.env.AUTH_USERNAME ?? '';
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? '';
 const AUTH_SESSION_SECRET = process.env.AUTH_SESSION_SECRET ?? '';
+const REGISTRATION_INVITE_CODE = process.env.REGISTRATION_INVITE_CODE ?? '';
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 function cookie(req: IncomingMessage, name: string): string | undefined {
@@ -82,7 +82,7 @@ function sessionFor(userId: string): string {
   return `${payload}.${signature(payload)}`;
 }
 function requestUserId(req: IncomingMessage): string | undefined {
-  if (!AUTH_USERNAME || !AUTH_PASSWORD || !AUTH_SESSION_SECRET) return undefined;
+  if (!AUTH_SESSION_SECRET) return undefined;
   const token = cookie(req, 'mi_session');
   if (!token) return undefined;
   const [payload, supplied] = token.split('.');
@@ -96,7 +96,7 @@ function requestUserId(req: IncomingMessage): string | undefined {
       userId?: string;
       expiresAt?: number;
     };
-    if (parsed.userId !== AUTH_USERNAME || (parsed.expiresAt ?? 0) < Date.now()) return undefined;
+    if (!parsed.userId || (parsed.expiresAt ?? 0) < Date.now()) return undefined;
     return parsed.userId;
   } catch {
     return undefined;
@@ -108,7 +108,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   if (chunks.reduce((sum, chunk) => sum + chunk.length, 0) > 16_384) throw new Error('请求过大');
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
-const LOGIN_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 百万网红 Agent</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1117;color:#e6edf3;font:15px -apple-system,"PingFang SC",sans-serif}.card{width:min(92vw,380px);padding:28px;background:#161b22;border:1px solid #30363d;border-radius:14px}h1{font-size:20px;margin:0 0 6px}.sub{color:#8b949e;margin-bottom:22px}label{display:block;margin:12px 0 5px}input,button{width:100%;padding:11px 12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font:inherit}button{margin-top:18px;background:#8957e5;border-color:#8957e5;font-weight:600;cursor:pointer}.err{min-height:22px;color:#f85149;margin-top:10px}</style></head><body><form class="card" id="login"><h1>🚀 百万网红 Agent</h1><div class="sub">登录后才能启动生产任务</div><label>账号</label><input name="username" autocomplete="username" required autofocus><label>密码</label><input name="password" type="password" autocomplete="current-password" required><button>登录</button><div class="err" id="err"></div></form><script>document.getElementById('login').onsubmit=async e=>{e.preventDefault();const b=e.currentTarget.querySelector('button');b.disabled=true;const f=new FormData(e.currentTarget);const r=await fetch('/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(f))});if(r.ok)location.href='/';else{document.getElementById('err').textContent='账号或密码错误';b.disabled=false}}</script></body></html>`;
+const LOGIN_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>账号 · 百万网红 Agent</title><style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1117;color:#e6edf3;font:15px -apple-system,"PingFang SC",sans-serif}.card{width:min(92vw,390px);padding:28px;background:#161b22;border:1px solid #30363d;border-radius:14px}h1{font-size:20px;margin:0 0 6px}.sub{color:#8b949e;margin-bottom:18px}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tab{margin:0;background:#21262d}.tab.on{background:#8957e5;border-color:#8957e5}label{display:block;margin:12px 0 5px}input,button{width:100%;padding:11px 12px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font:inherit}button{margin-top:18px;background:#8957e5;border-color:#8957e5;font-weight:600;cursor:pointer}.err{min-height:22px;color:#f85149;margin-top:10px}.invite{display:none}</style></head><body><form class="card" id="auth"><h1>🚀 百万网红 Agent</h1><div class="sub">每个账号拥有独立的任务和历史</div><div class="tabs"><button type="button" class="tab on" data-mode="login">登录</button><button type="button" class="tab" data-mode="register">注册</button></div><label>账号</label><input name="username" autocomplete="username" pattern="[A-Za-z0-9_-]{3,32}" required autofocus><label>密码</label><input name="password" type="password" minlength="10" autocomplete="current-password" required><div class="invite"><label>邀请码</label><input name="inviteCode" autocomplete="off"></div><button id="submit">登录</button><div class="err" id="err"></div></form><script>let mode='login';document.querySelectorAll('.tab').forEach(x=>x.onclick=()=>{mode=x.dataset.mode;document.querySelectorAll('.tab').forEach(y=>y.classList.toggle('on',y===x));document.querySelector('.invite').style.display=mode==='register'?'block':'none';document.querySelector('[name=inviteCode]').required=mode==='register';document.getElementById('submit').textContent=mode==='register'?'注册并登录':'登录';document.getElementById('err').textContent=''});document.getElementById('auth').onsubmit=async e=>{e.preventDefault();const b=document.getElementById('submit');b.disabled=true;const r=await fetch('/'+mode,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(e.currentTarget)))});const j=await r.json().catch(()=>({}));if(r.ok)location.href='/';else{document.getElementById('err').textContent=j.error||'操作失败';b.disabled=false}}</script></body></html>`;
 
 /** 单步重试上限：须长于 deep.search 自身的 20 分钟，给收尾和结果落盘留余量。 */
 const NODE_RETRY_TIMEOUT_MS = 1_500_000;
@@ -295,25 +295,44 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/login') {
     try {
       const body = await readJson(req);
-      const valid =
-        !!AUTH_USERNAME &&
-        !!AUTH_PASSWORD &&
-        !!AUTH_SESSION_SECRET &&
-        body.username === AUTH_USERNAME &&
-        body.password === AUTH_PASSWORD;
-      if (!valid) {
+      const userId = await authenticateUser(
+        String(body.username ?? ''),
+        String(body.password ?? ''),
+      );
+      if (!userId || !AUTH_SESSION_SECRET) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: '账号或密码错误' }));
         return;
       }
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Set-Cookie': `mi_session=${sessionFor(AUTH_USERNAME)}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`,
+        'Set-Cookie': `mi_session=${sessionFor(userId)}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`,
       });
       res.end(JSON.stringify({ ok: true }));
     } catch {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '非法请求' }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/register') {
+    try {
+      const body = await readJson(req);
+      if (!REGISTRATION_INVITE_CODE || body.inviteCode !== REGISTRATION_INVITE_CODE) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '邀请码错误' }));
+        return;
+      }
+      const userId = await createUser(String(body.username ?? ''), String(body.password ?? ''));
+      res.writeHead(201, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': `mi_session=${sessionFor(userId)}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`,
+      });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : '注册失败' }));
     }
     return;
   }
@@ -529,6 +548,7 @@ const server = createServer(async (req, res) => {
   res.end('not found');
 });
 
+await initializeUsers();
 server.listen(PORT, () => {
   console.log(`\n🖥  生产链路可视化已启动： http://localhost:${PORT}`);
   console.log('   打开后点「开始跑」，用真实人设走一遍并实时观看。\n');
