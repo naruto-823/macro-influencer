@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { RefineResult, SkillContext } from '../engine/types.js';
+import type { FactCheckReport, RefineResult, SkillContext } from '../engine/types.js';
 import { FakeLlmClient } from '../llm/fake.js';
 import { riskReviewSkill } from './risk-review.js';
 
-function ctx(llm: FakeLlmClient, body: string): SkillContext {
+function ctx(llm: FakeLlmClient, body: string, factCheck?: FactCheckReport): SkillContext {
   const refine: RefineResult = { final: { title: '标题', body }, rounds: [] };
   return {
     runId: 'r1',
@@ -13,7 +13,7 @@ function ctx(llm: FakeLlmClient, body: string): SkillContext {
     persona: {} as any,
     // biome-ignore lint/suspicious/noExplicitAny: 不触碰 sources
     sources: {} as any,
-    bag: { 'content.refine': refine },
+    bag: { 'content.refine': refine, ...(factCheck ? { 'fact.check': factCheck } : {}) },
     emit: () => {},
     signal: new AbortController().signal,
   };
@@ -47,5 +47,33 @@ describe('risk.review', () => {
     expect(report.level).toBe('pass');
     expect(report.fixes).toEqual([]);
     expect(report.rewritten.body).toBe('今天分享一个好用的小工具');
+  });
+
+  it('存在非绿事实但逐句 fixes 为空时，强制生成整稿净化版', async () => {
+    const sanitizedBody = '据公开信息，相关项目已经推进，具体进展仍需以权威披露为准。'.repeat(60);
+    const llm = new FakeLlmClient([
+      JSON.stringify({ fixes: [] }),
+      JSON.stringify({ title: '审慎标题', body: sanitizedBody }),
+    ]);
+    const factCheck: FactCheckReport = {
+      claims: [
+        {
+          claim: '该项目单日收入7000万元',
+          confidence: 'red',
+          basis: '没有可靠来源',
+        },
+      ],
+      redCount: 1,
+      summary: '存在存疑数字',
+    };
+    const report = await riskReviewSkill.run(
+      ctx(llm, '该项目单日收入7000万元，已经创造纪录。', factCheck),
+    );
+    expect(report.fixes).toHaveLength(1);
+    expect(report.fixes[0]?.rule).toContain('事实存疑兜底');
+    expect(report.rewritten).toEqual({
+      title: '审慎标题',
+      body: sanitizedBody,
+    });
   });
 });

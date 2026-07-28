@@ -12,3 +12,5 @@ out
 
 # Aroon code generation tracking
 .aroon/
+# @byted-motor/aicoding-telemetry: git-hook run log (do not commit)
+.motor-code/log/

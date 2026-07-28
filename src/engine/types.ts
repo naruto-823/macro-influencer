@@ -92,7 +92,7 @@ export interface FactClaim {
   basis: string;
 }
 
-/** ⑥ 事实核查报告（独立于改写，只标记不改写） */
+/** ⑥ 事实核查报告（独立核查；非绿项由后续风控自动净化） */
 export interface FactCheckReport {
   claims: FactClaim[];
   redCount: number;
@@ -125,7 +125,10 @@ export interface RiskReport {
 /** ⑧ 最终作品包 */
 export interface FinalAsset {
   titles: string[];
+  /** 完整定稿，按 Unicode 字符计不少于 1500 字。 */
   body: string;
+  /** 用于阶段性展示/平台预览的精简版，按 Unicode 字符计不超过 950 字。 */
+  stagedBody: string;
   imagePrompts: string[];
   publishTips: string;
 }

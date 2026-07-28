@@ -82,6 +82,7 @@ describe('assemblePackage', () => {
   const asset: FinalAsset = {
     titles: ['一个很短的标题', '备选标题二', '备选标题三'],
     body: '这是正文第一句。'.repeat(200), // ~1600 chars, 超 1000
+    stagedBody: '这是阶段版正文。',
     imagePrompts: [],
     publishTips: '晚上8点发。标签：职场、晋升、互联网',
   };

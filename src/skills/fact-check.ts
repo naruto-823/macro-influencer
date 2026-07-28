@@ -16,7 +16,8 @@ const COLORS = new Set(['green', 'yellow', 'red']);
 /**
  * ⑥ 事实核查：独立节点（新闻业铁律——核查不能既当运动员又当裁判）。
  * 用换模型的裁判，把成稿里每条事实/数字/引语对着 ② 的调研档案逐条核，三色置信标注。
- * 只标记、不改写；🔴存疑项交人工卡点定夺。
+ * 本节点保持独立、只做标记；🔴/🟡项由紧随其后的 risk.review 自动净化，
+ * 不再要求用户手工放行未经处理的稿件。
  */
 export const factCheckSkill: Skill<FactCheckReport> = {
   name: 'fact.check',

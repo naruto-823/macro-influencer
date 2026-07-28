@@ -4,8 +4,8 @@ import type { LlmClient, LlmCompleteOpts } from '../llm/client.js';
 import { parseJson } from '../llm/client.js';
 import { contentRefineSkill } from './content-refine.js';
 
-// 正文要足够长（采纳门槛 >=300 字，防空/截断）。
-const LONG = '初稿正文，比较空泛，缺乏具体的事实数据与案例支撑。'.repeat(15);
+// 正文要满足最终成稿的 1500 字硬门槛。
+const LONG = '初稿正文，比较空泛，缺乏具体的事实数据与案例支撑。'.repeat(70);
 const draft: Draft = { title: 't0', body: LONG };
 
 /** 可分别给 judge / writer 预置回复的假客户端。 */
@@ -48,7 +48,7 @@ const verdict = (score: number, defects: string[]) => JSON.stringify({ score, de
 const rewritten = (body: string, changes: string[]) =>
   `${body}\n===CHANGES===\n${changes.map((c) => `- ${c}`).join('\n')}`;
 const NEW_BODY = '改写后更扎实的正文，补了大量真实数据、案例与时间线，信息密度明显提升。'.repeat(
-  12,
+  55,
 );
 
 describe('content.refine（Evaluator-Optimizer）', () => {

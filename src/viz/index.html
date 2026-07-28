@@ -232,7 +232,7 @@ function fmt(sk,o){
     const fixes=(o.fixes||[]).length?('<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:4px">'+(o.fixes||[]).map(f=>`<tr><td style="color:var(--fail);padding:2px 6px;vertical-align:top">${esc(f.from)}</td><td style="color:#8b949e">→</td><td style="color:var(--ok);padding:2px 6px;vertical-align:top">${esc(f.to)}</td><td><span class="chip">${esc(f.rule)}</span></td></tr>`).join('')+'</table>'):'<span class="empty">无限流红线需改写</span>';
     return `风险等级：<b>${esc(o.level)}</b><br>静态敏感词：${h}<br><br><b>合规改写对照（看得见改了什么）</b>${fixes}<br><br><b>定稿：${esc(o.rewritten?.title||'')}</b><pre>${esc(o.rewritten?.body||'')}</pre>`;
   }
-  if(sk==='asset.assemble'){ if(o==null) return '<span class="empty">打包中…</span>'; const t=(o.titles||[]).map((x,i)=>`${i+1}. ${esc(x)}`).join('<br>'); const im=(o.imagePrompts||[]).map((x,i)=>`图${i+1}：${esc(x)}`).join('<br>'); return `<b>标题候选</b><br>${t}<pre>${esc(o.body)}</pre><b>配图分镜</b><br>${im}<br><br><b>发布建议</b><pre>${esc(o.publishTips)}</pre>`; }
+  if(sk==='asset.assemble'){ if(o==null) return '<span class="empty">打包中…</span>'; const t=(o.titles||[]).map((x,i)=>`${i+1}. ${esc(x)}`).join('<br>'); const im=(o.imagePrompts||[]).map((x,i)=>`图${i+1}：${esc(x)}`).join('<br>'); return `<b>标题候选（≤20字）</b><br>${t}<br><br><b>完整正文（≥1500字）</b><pre>${esc(o.body)}</pre><b>阶段版正文（≤950字）</b><pre>${esc(o.stagedBody||'')}</pre><b>配图分镜</b><br>${im}<br><br><b>发布建议</b><pre>${esc(o.publishTips)}</pre>`; }
   if(sk==='image.render'){
     if(o==null) return '<span class="empty">出图中…（每张 claude -p 出 SVG 再渲染，较慢请稍候）</span>';
     const imgs=o.images||[];
@@ -289,7 +289,14 @@ async function retryImg(i,btn){
 // —— 历史 run 回看 ——
 const STAGE_ORDER=['hotspot.fetch','hotspot.recommend','topic.generate','deep.search','content.outline','content.draft','content.refine','fact.check','risk.review','asset.assemble','image.render'];
 const runsEl=document.getElementById('runs');
-function shortId(id){ const m=id.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/); return m?`${m[2]}-${m[3]} ${m[4]}:${m[5]}`:id; }
+// run id 由 toISOString() 生成，末尾 Z 表示 UTC；历史列表应展示浏览器所在的本地时区。
+function shortId(id){
+  const m=id.match(/^run-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})(?:-(\d{3}))?Z$/);
+  if(!m)return id;
+  const d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6],+(m[7]||0)));
+  const pad=n=>String(n).padStart(2,'0');
+  return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 async function loadRuns(){
   try{
     const runs=await (await fetch('/runs')).json();

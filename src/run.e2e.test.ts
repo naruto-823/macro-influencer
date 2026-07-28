@@ -12,7 +12,16 @@ process.env.CHAR_ASSETS_DIR = resolve('runs', '__no_assets__');
 // 内联假热点源（离线、确定性），避免 E2E 打真实网络。
 const fakeHotspot: HotspotSource = {
   async fetch() {
-    return [{ id: 'h1', title: '测试热点', heat: 1, source: 'test', keywords: [] }];
+    return [
+      {
+        id: 'h1',
+        title: '测试热点',
+        heat: 1,
+        source: 'test',
+        keywords: [],
+        summary: '测试热点的原始摘要。',
+      },
+    ];
   },
 };
 
@@ -22,6 +31,7 @@ describe('runPipeline E2E（全链路用 FakeLlm）', () => {
     // content.refine 的 3 个维度裁判（demo 默认 maxRefineRounds=3，评分均达标→不触发改写） /
     // fact.check / risk.review / asset.assemble
     const judged = JSON.stringify({ score: 95, defects: [] });
+    const longBody = '初稿正文，分享一个好用的小工具，也说明适用边界与实际使用方法。'.repeat(60);
     const llm = new FakeLlmClient([
       JSON.stringify({ picks: [{ index: 0, reason: '契合', angle: '角度' }] }),
       JSON.stringify({ topics: [{ title: '选题1', angle: '角度', rationale: '契合' }] }),
@@ -33,7 +43,7 @@ describe('runPipeline E2E（全链路用 FakeLlm）', () => {
         goldenLines: ['少加班就是多活'],
         ending: '冲，评论区聊',
       }),
-      JSON.stringify({ title: '初稿标题', body: '初稿正文，分享一个好用的小工具' }),
+      JSON.stringify({ title: '初稿标题', body: longBody }),
       judged,
       judged,
       judged,
@@ -43,10 +53,10 @@ describe('runPipeline E2E（全链路用 FakeLlm）', () => {
       }),
       JSON.stringify({
         fixes: [],
-        rewritten: { title: '终稿标题', body: '终稿正文，分享一个好用的小工具' },
       }),
       JSON.stringify({
         titles: ['终稿标题A', '终稿标题B', '终稿标题C'],
+        stagedBody: '阶段版正文，保留核心结论和行动建议。',
         imagePrompts: ['封面图', '配图2'],
         publishTips: '晚8点发，带话题#效率工具',
       }),
@@ -72,6 +82,7 @@ describe('runPipeline E2E（全链路用 FakeLlm）', () => {
     // 深度调研节点已跑：退回 complete（online=false），并从报告里提取到来源。
     const research = bag['deep.search'] as { online: boolean; sources: string[] };
     expect(research.online).toBe(false);
-    expect(research.sources).toEqual(['https://example.com/fact']);
+    // 未联网返回的 URL 不再冒充真实引用来源。
+    expect(research.sources).toEqual([]);
   });
 });

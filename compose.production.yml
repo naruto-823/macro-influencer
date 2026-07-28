@@ -1,0 +1,23 @@
+services:
+  app:
+    image: macro-influencer:${IMAGE_TAG}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      VIZ_PORT: "5180"
+      LLM_BACKEND: ${LLM_BACKEND:-fox}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      WEIBO_COOKIE: ${WEIBO_COOKIE:-}
+    ports:
+      - "127.0.0.1:${HOST_PORT:-5180}:5180"
+    volumes:
+      - runs_data:/app/runs
+      - cache_data:/app/cache
+
+volumes:
+  runs_data:
+  cache_data:
