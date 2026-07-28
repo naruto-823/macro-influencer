@@ -28,7 +28,7 @@ HOST_PORT=5180
 
 ## 公网网关
 
-生产 Compose 只把应用发布到 VPS 回环地址 `127.0.0.1:5180`，避免与同机已有 Caddy 的 80/443 端口冲突。共享 Caddy 需要增加一个站点：
+生产 Compose 把应用发布到宿主机 `5180`，供另一个 Docker network 中的共享 Caddy 经 `host.docker.internal` 访问。VPS 防火墙必须只开放 22/80/443，不得向公网放行 5180。共享 Caddy 需要增加一个站点：
 
 ```caddyfile
 influencer.example.com {
