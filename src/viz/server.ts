@@ -29,6 +29,7 @@ import {
   userIdForUsername,
 } from './account-store.js';
 import { authenticateUser, createUser, initializeUsers } from './auth-store.js';
+import { analyzeXhsProfile } from './xhs-profile.js';
 
 // 加载本项目 .env（fox 代理 key/baseURL/model 在此），与 cli 一致。
 try {
@@ -442,6 +443,7 @@ const server = createServer(async (req, res) => {
     try {
       const body = await readJson(req);
       const account = await importAccount(userId, {
+        sourceUrl: String(body.sourceUrl ?? ''),
         displayName: String(body.displayName ?? ''),
         positioning: String(body.positioning ?? ''),
         styleGuide: String(body.styleGuide ?? ''),
@@ -458,6 +460,19 @@ const server = createServer(async (req, res) => {
     } catch (error) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: error instanceof Error ? error.message : '导入失败' }));
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/accounts/analyze') {
+    try {
+      const body = await readJson(req);
+      const analysis = await analyzeXhsProfile(String(body.url ?? ''), makeLlm());
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(analysis));
+    } catch (error) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : '主页分析失败' }));
     }
     return;
   }
