@@ -1,5 +1,5 @@
 import type { DeepResearch, Draft, RefineResult, RefineRound, Skill } from '../engine/types.js';
-import { charCount, MIN_FINAL_BODY_CHARS } from './content-draft.js';
+import { MIN_FINAL_BODY_CHARS, charCount } from './content-draft.js';
 
 /** 一轮裁判的结构化输出。 */
 interface JudgeVerdict {
@@ -141,8 +141,7 @@ export const contentRefineSkill: Skill<RefineResult> = {
               .slice(0, 20)
           : [];
       // 采纳门槛：正文够长（防空/截断）且确有改动。标题不在精修范围，沿用原标题。
-      const applied =
-        charCount(newBody) >= MIN_FINAL_BODY_CHARS && newBody !== current.body.trim();
+      const applied = charCount(newBody) >= MIN_FINAL_BODY_CHARS && newBody !== current.body.trim();
       if (applied) current = { title: current.title, body: newBody };
       rounds.push({
         round: i + 1,

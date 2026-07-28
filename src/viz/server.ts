@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPersona, makeJudge, makeLlm, newRunId } from '../cli.js';
@@ -31,16 +33,45 @@ const INDEX_HTML = fileURLToPath(new URL('./index.html', import.meta.url));
 // 本次服务启动 id：前端断连重连后比对，变了说明服务重启过 → 自动刷新拿最新前端。
 const SERVER_ID = String(Date.now());
 
-const bus = new EventBus();
 const RUNS_DIR = resolve('runs');
-let running = false;
-let retrying = false;
+
+type PipelineEvent = Parameters<EventBus['emit']>[0];
+interface ClientState {
+  bus: EventBus;
+  running: boolean;
+  retrying: boolean;
+  pendingGate: { options: string[]; resolve: (choice: string) => void } | null;
+  pendingFailure: { resolve: (choice: 'retry' | 'skip' | 'abort') => void } | null;
+  events: PipelineEvent[];
+}
+const clients = new Map<string, ClientState>();
+function stateFor(clientId: string): ClientState {
+  let state = clients.get(clientId);
+  if (!state) {
+    state = {
+      bus: new EventBus(),
+      running: false,
+      retrying: false,
+      pendingGate: null,
+      pendingFailure: null,
+      events: [],
+    };
+    clients.set(clientId, state);
+  }
+  return state;
+}
+function requestClientId(req: IncomingMessage): string | undefined {
+  const value = req.headers.cookie?.match(/(?:^|;\s*)mi_client=([a-zA-Z0-9-]{8,64})/)?.[1];
+  return value;
+}
 
 /** 单步重试上限：须长于 deep.search 自身的 20 分钟，给收尾和结果落盘留余量。 */
 const NODE_RETRY_TIMEOUT_MS = 1_500_000;
 
 /** 列出历史 run（读 runs/<id>/result.json），按时间倒序，附带一个标题用于展示。 */
-async function listRuns(): Promise<Array<{ id: string; title: string; done: boolean }>> {
+async function listRuns(
+  clientId: string,
+): Promise<Array<{ id: string; title: string; done: boolean }>> {
   let entries: string[] = [];
   try {
     entries = await readdir(RUNS_DIR);
@@ -51,6 +82,7 @@ async function listRuns(): Promise<Array<{ id: string; title: string; done: bool
   for (const id of entries) {
     try {
       const bag = JSON.parse(await readFile(join(RUNS_DIR, id, 'result.json'), 'utf8'));
+      if (bag.__clientId !== clientId) continue;
       const asset = bag['asset.assemble'] as { titles?: string[] } | undefined;
       const draft = bag['content.draft'] as { title?: string } | undefined;
       runs.push({ id, title: asset?.titles?.[0] ?? draft?.title ?? '(未完成)', done: !!asset });
@@ -62,44 +94,24 @@ async function listRuns(): Promise<Array<{ id: string; title: string; done: bool
   return runs;
 }
 
-// 交互卡点：到卡点时 gate() 挂起、等前端 POST /gate 才继续（不自动往下跑，省 token）。
-let pendingGate: { options: string[]; resolve: (choice: string) => void } | null = null;
-// 失败重试：某节点失败时挂起，等前端 POST /retry 选「重试/跳过/中止」（前序结果都还在，不白跑）。
-let pendingFailure: { resolve: (choice: 'retry' | 'skip' | 'abort') => void } | null = null;
-
-// 当前 run 的事件缓冲：新 SSE 连接进来时重放，让刷新/切回的页面能重建实时状态（含未答的卡点按钮）。
-let currentEvents: Parameters<typeof bus.emit>[0][] = [];
-
-function interactiveGate(_question: string, options: string[]): Promise<string> {
-  return new Promise((resolve) => {
-    pendingGate = { options, resolve };
-  });
-}
-
-/** 节点失败时挂起，等前端选择处理方式。 */
-function interactiveStageFailed(): Promise<'retry' | 'skip' | 'abort'> {
-  return new Promise((resolve) => {
-    pendingFailure = { resolve };
-  });
-}
-
 /** 触发一次真跑（交互卡点：选题/风控需在网页里点选），事件经 bus 广播给所有 SSE 连接。 */
-async function startRun(personaId: string): Promise<boolean> {
-  if (running) return false;
-  running = true;
-  pendingGate = null;
-  pendingFailure = null;
+async function startRun(clientId: string, state: ClientState, personaId: string): Promise<boolean> {
+  if (state.running) return false;
+  state.running = true;
+  state.pendingGate = null;
+  state.pendingFailure = null;
   const runId = newRunId();
   // 增量落盘：每完成一步/每个卡点都把已生成的内容写盘，
   // 这样即便后面失败、中断、或服务重启，已经产出的（选题/初稿/打磨/成品）也都在历史里、刷新可见。
   const liveBag: Record<string, unknown> = {};
+  liveBag.__clientId = clientId;
   // 记下这条 run 用的人设 id，单节点重试时要据此重建 ctx。
   liveBag.__personaId = personaId;
   void persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
-  const onEvent = (e: Parameters<typeof bus.emit>[0]) => {
-    if (e.type === 'run.start') currentEvents = [];
-    currentEvents.push(e);
-    bus.emit(e);
+  const onEvent = (e: PipelineEvent) => {
+    if (e.type === 'run.start') state.events = [];
+    state.events.push(e);
+    state.bus.emit(e);
     if (e.type === 'stage.done') {
       liveBag[e.skill] = e.output;
       void persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
@@ -123,23 +135,31 @@ async function startRun(personaId: string): Promise<boolean> {
         skillTimeoutMs: 480_000,
         // 含人工卡点等待 + 联网调研/多轮精修等慢节点，放宽到 60 分钟。
         runWallclockMs: 3_600_000,
-        gate: interactiveGate,
+        gate: (_question, options) =>
+          new Promise((resolve) => {
+            state.pendingGate = { options, resolve };
+          }),
         // 失败先静默自动重试 1 次（吞瞬时超时/限流），仍失败则交人工。
         autoRetries: 1,
-        onStageFailed: interactiveStageFailed,
+        onStageFailed: () =>
+          new Promise((resolve) => {
+            state.pendingFailure = { resolve };
+          }),
         onEvent,
       },
     });
+    bag.__clientId = clientId;
+    bag.__personaId = personaId;
     const dir = await persistRun(RUNS_DIR, runId, bag);
-    bus.emit({ type: 'run.done', runId, dir });
+    state.bus.emit({ type: 'run.done', runId, dir });
   } catch (e) {
     // 失败/中止时，已增量落盘的部分仍在历史里；这里兜底再存一次当前进度。
     await persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
-    bus.emit({ type: 'run.failed', error: e instanceof Error ? e.message : String(e) });
+    state.bus.emit({ type: 'run.failed', error: e instanceof Error ? e.message : String(e) });
   } finally {
-    running = false;
-    pendingGate = null;
-    pendingFailure = null;
+    state.running = false;
+    state.pendingGate = null;
+    state.pendingFailure = null;
   }
   return true;
 }
@@ -149,10 +169,12 @@ async function startRun(personaId: string): Promise<boolean> {
  * 回写 result.json[skill]。进度经 bus 广播，UI 能看到该节点 running→done。
  */
 async function retryNode(
+  clientId: string,
+  state: ClientState,
   runId: string,
   skillName: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (running || retrying) return { ok: false, error: '已有任务在跑，稍后再试' };
+  if (state.running || state.retrying) return { ok: false, error: '已有任务在跑，稍后再试' };
   let skill: ReturnType<ReturnType<typeof buildRegistry>['get']>;
   try {
     skill = buildRegistry().get(skillName);
@@ -163,10 +185,11 @@ async function retryNode(
   let bag: Record<string, unknown>;
   try {
     bag = JSON.parse(await readFile(resultPath, 'utf8'));
+    if (bag.__clientId !== clientId) return { ok: false, error: '找不到该 run' };
   } catch {
     return { ok: false, error: '找不到该 run' };
   }
-  retrying = true;
+  state.retrying = true;
   try {
     const personaId = (bag.__personaId as string) ?? 'gunzi-daren';
     const persona = personaId === 'demo' ? demoPersona : await loadPersona(personaId);
@@ -183,10 +206,10 @@ async function retryNode(
         ),
       },
       bag,
-      emit: (m) => bus.emit({ type: 'stage.progress', skill: skill.name, msg: m }),
+      emit: (m) => state.bus.emit({ type: 'stage.progress', skill: skill.name, msg: m }),
       signal: new AbortController().signal,
     };
-    bus.emit({ type: 'stage.start', skill: skill.name, title: skill.title, index: -1 });
+    state.bus.emit({ type: 'stage.start', skill: skill.name, title: skill.title, index: -1 });
     const output = await Promise.race([
       skill.run(ctx),
       new Promise<never>((_, rej) =>
@@ -198,14 +221,20 @@ async function retryNode(
     ]);
     bag[skill.name] = output;
     await persistRun(RUNS_DIR, runId, bag);
-    bus.emit({ type: 'stage.done', skill: skill.name, output });
+    state.bus.emit({ type: 'stage.done', skill: skill.name, output });
     return { ok: true };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    bus.emit({ type: 'stage.failed', skill: skill.name, title: skill.title, error, attempt: 1 });
+    state.bus.emit({
+      type: 'stage.failed',
+      skill: skill.name,
+      title: skill.title,
+      error,
+      attempt: 1,
+    });
     return { ok: false, error };
   } finally {
-    retrying = false;
+    state.retrying = false;
   }
 }
 
@@ -220,10 +249,17 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/') {
     const html = await readFile(INDEX_HTML, 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    const clientId = requestClientId(req) ?? randomUUID();
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Set-Cookie': `mi_client=${clientId}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`,
+    });
     res.end(html);
     return;
   }
+
+  const clientId = requestClientId(req) ?? 'anonymous';
+  const state = stateFor(clientId);
 
   if (req.method === 'GET' && url.pathname === '/events') {
     res.writeHead(200, {
@@ -233,8 +269,8 @@ const server = createServer(async (req, res) => {
     });
     res.write(': connected\n\n');
     // 重放当前 run 已发生的事件，让刚连上的页面重建出实时状态（含未答的卡点）。
-    for (const e of currentEvents) res.write(`data: ${JSON.stringify(e)}\n\n`);
-    const off = bus.on((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
+    for (const e of state.events) res.write(`data: ${JSON.stringify(e)}\n\n`);
+    const off = state.bus.on((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
     const ping = setInterval(() => res.write(': ping\n\n'), 15_000);
     req.on('close', () => {
       clearInterval(ping);
@@ -261,6 +297,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     try {
+      if (!(await listRuns(clientId)).some((r) => r.id === runId)) throw new Error('forbidden');
       const buf = await readFile(join(RUNS_DIR, runId, 'imgs', name));
       // 不缓存：同名图会被重出/重试覆盖，缓存会让你一直看到旧图。
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
@@ -274,14 +311,14 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/runs') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(await listRuns()));
+    res.end(JSON.stringify(await listRuns(clientId)));
     return;
   }
 
   if (req.method === 'GET' && url.pathname.startsWith('/runs/')) {
     const id = decodeURIComponent(url.pathname.slice('/runs/'.length));
     // 防目录穿越：只允许实际存在的 run 目录
-    const runs = await listRuns();
+    const runs = await listRuns(clientId);
     if (!runs.some((r) => r.id === id)) {
       res.writeHead(404);
       res.end('no such run');
@@ -294,16 +331,16 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/gate') {
     const choice = url.searchParams.get('choice') ?? '';
-    if (!pendingGate) {
+    if (!state.pendingGate) {
       res.writeHead(409, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '当前没有待决策的卡点' }));
       return;
     }
     // 只接受合法选项，避免乱传
-    const ok = pendingGate.options.includes(choice);
+    const ok = state.pendingGate.options.includes(choice);
     if (ok) {
-      const g = pendingGate;
-      pendingGate = null;
+      const g = state.pendingGate;
+      state.pendingGate = null;
       g.resolve(choice);
     }
     res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
@@ -313,15 +350,15 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/retry') {
     const choice = url.searchParams.get('choice') ?? '';
-    if (!pendingFailure) {
+    if (!state.pendingFailure) {
       res.writeHead(409, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '当前没有待处理的失败' }));
       return;
     }
     const ok = choice === 'retry' || choice === 'skip' || choice === 'abort';
     if (ok) {
-      const f = pendingFailure;
-      pendingFailure = null;
+      const f = state.pendingFailure;
+      state.pendingFailure = null;
       f.resolve(choice as 'retry' | 'skip' | 'abort');
     }
     res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
@@ -333,14 +370,14 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/node-retry') {
     const runId = url.searchParams.get('run') ?? '';
     const skillName = url.searchParams.get('skill') ?? '';
-    const runs = await listRuns();
+    const runs = await listRuns(clientId);
     if (!runs.some((r) => r.id === runId) || !skillName) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '非法参数' }));
       return;
     }
-    const r = await retryNode(runId, skillName);
-    res.writeHead(r.ok ? 200 : running || retrying ? 409 : 400, {
+    const r = await retryNode(clientId, state, runId, skillName);
+    res.writeHead(r.ok ? 200 : state.running || state.retrying ? 409 : 400, {
       'Content-Type': 'application/json',
     });
     res.end(JSON.stringify(r.ok ? { ok: true } : { error: r.error }));
@@ -351,7 +388,7 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/img-retry') {
     const runId = url.searchParams.get('run') ?? '';
     const index = Number(url.searchParams.get('index'));
-    const runs = await listRuns();
+    const runs = await listRuns(clientId);
     if (!runs.some((r) => r.id === runId) || !Number.isInteger(index) || index < 0) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '非法参数' }));
@@ -389,7 +426,7 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/run') {
     const personaId = url.searchParams.get('persona') ?? 'gunzi-daren';
-    const ok = await startRun(personaId);
+    const ok = await startRun(clientId, state, personaId);
     res.writeHead(ok ? 202 : 409, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(ok ? { started: true } : { error: '已有任务在跑' }));
     return;

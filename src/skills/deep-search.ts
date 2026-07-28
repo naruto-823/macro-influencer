@@ -37,17 +37,11 @@ export const deepSearchSkill: Skill<DeepResearch> = {
       .sort((a, b) => b.score - a.score)[0];
     const rec =
       exactRec ??
-      (rankedRec && rankedRec.score > 0
-        ? rankedRec.r
-        : recs.length === 1
-          ? recs[0]
-          : undefined);
+      (rankedRec && rankedRec.score > 0 ? rankedRec.r : recs.length === 1 ? recs[0] : undefined);
     const hotspots = (ctx.bag['hotspot.fetch'] as Hotspot[]) ?? [];
     const seed = hotspots.find(
       (h) =>
-        h.title === rec?.title ||
-        topic.title.includes(h.title) ||
-        h.title.includes(topic.title),
+        h.title === rec?.title || topic.title.includes(h.title) || h.title.includes(topic.title),
     );
     const seedEvidence = seed
       ? [
@@ -138,7 +132,10 @@ export const deepSearchSkill: Skill<DeepResearch> = {
 
     // 离线模型即使吐出 URL 也不可信，绝不把它们展示成“实际引用来源”。
     const sources = online ? extractSources(report) : [];
-    if (!online && /<web_(?:search|fetch)>|检索(?:了|过程|次数)|必应.{0,8}搜索|百度.{0,8}搜索/i.test(report)) {
+    if (
+      !online &&
+      /<web_(?:search|fetch)>|检索(?:了|过程|次数)|必应.{0,8}搜索|百度.{0,8}搜索/i.test(report)
+    ) {
       throw new Error('离线调研伪造了搜索过程，已拦截；请重试或更换选题');
     }
     ctx.emit(
