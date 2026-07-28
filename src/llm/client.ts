@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
 import { traceLlm, tracedFetch } from './trace.js';
+import { searchPublicWeb } from './web-research.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -202,47 +203,11 @@ export class ClaudeLlmClient implements LlmClient {
       // 生产容器不安装 Codex CLI：由应用直接搜索并抓取公开网页，再交给模型据实整理。
       const topic =
         opts.prompt.match(/调研选题：([^\n]+)/)?.[1]?.trim() ?? opts.prompt.slice(0, 120);
-      const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(topic)}`;
-      const searchHtml = await fetch(searchUrl, {
-        headers: { 'user-agent': 'Mozilla/5.0 (compatible; MacroInfluencerResearch/1.0)' },
-        signal: AbortSignal.timeout(20_000),
-      }).then((r) => {
-        if (!r.ok) throw new Error(`搜索引擎返回 HTTP ${r.status}`);
-        return r.text();
-      });
-      const urls = [...searchHtml.matchAll(/href="(https?:\/\/[^"#]+)"/g)]
-        .map((m) => (m[1] ?? '').replace(/&amp;/g, '&'))
-        .filter((u) => !/bing\.com|microsoft\.com|javascript:/i.test(u));
-      const sources = [...new Set(urls)].slice(0, 6);
-      const pages = (
-        await Promise.all(
-          sources.map(async (url) => {
-            try {
-              const html = await fetch(url, {
-                headers: { 'user-agent': 'Mozilla/5.0 (compatible; MacroInfluencerResearch/1.0)' },
-                signal: AbortSignal.timeout(15_000),
-              }).then((r) => (r.ok ? r.text() : ''));
-              const text = html
-                .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-                .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/&nbsp;|&#160;/g, ' ')
-                .replace(/&amp;/g, '&')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .slice(0, 12_000);
-              return text.length > 200 ? `来源：${url}\n正文摘录：${text}` : '';
-            } catch {
-              return '';
-            }
-          }),
-        )
-      ).filter(Boolean);
-      if (pages.length === 0) throw new Error('公网搜索未取得可用网页');
+      const { materials } = await searchPublicWeb(topic);
       const text = await this.complete({
         system:
           '你是严谨的资料编辑。只能依据提供的实时网页摘录整理事实；不得使用摘录外的具体数据，不得编造来源。',
-        prompt: `${prompt}\n\n【应用于刚刚实时抓取的网页材料】\n${pages.join('\n\n---\n\n')}\n\n只输出最终调研档案，每条事实紧邻对应来源 URL。`,
+        prompt: `${prompt}\n\n【应用刚刚实时取得的网页材料】\n${materials.join('\n\n---\n\n')}\n\n只输出最终调研档案。每条事实紧邻对应来源 URL；标成“搜索结果摘要”的材料只可作为待核实线索，不能据此确认精确数字、引语或因果关系。`,
       });
       return { text, online: true };
     }
