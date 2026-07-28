@@ -7,7 +7,7 @@ import type {
   Skill,
 } from '../engine/types.js';
 import { riskLevel, scanSensitive } from '../guardrails/sensitive-words.js';
-import { charCount, MIN_FINAL_BODY_CHARS } from './content-draft.js';
+import { MIN_FINAL_BODY_CHARS, charCount } from './content-draft.js';
 
 interface RawCompliance {
   fixes: Array<{ from?: string; to?: string; rule?: string }>;

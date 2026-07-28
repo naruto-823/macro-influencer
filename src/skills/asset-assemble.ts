@@ -1,6 +1,6 @@
 import type { FinalAsset, RiskReport, Skill } from '../engine/types.js';
 import { trimBodyToSentence, trimTitle } from '../publish/package.js';
-import { charCount, MIN_FINAL_BODY_CHARS } from './content-draft.js';
+import { MIN_FINAL_BODY_CHARS, charCount } from './content-draft.js';
 
 export const MAX_STAGED_BODY_CHARS = 950;
 

@@ -82,6 +82,30 @@
   .log { font:12px/1.6 ui-monospace,Menlo,monospace; }
   .log div { padding:2px 0; border-bottom:1px solid #161b22; color:var(--dim); }
   .log .hl { color:var(--txt); }
+  @media (max-width: 768px) {
+    header { padding:12px; gap:10px; position:sticky; top:0; z-index:10; background:var(--bg); }
+    header h1 { width:100%; font-size:15px; }
+    header h1 small { font-size:12px; }
+    header .spacer { display:none; }
+    header select { flex:1; min-width:0; }
+    header button.go { flex:none; }
+    #status { width:100%; }
+    .wrap { display:flex; flex-direction:column; height:auto; min-height:calc(100vh - 120px); }
+    .main { padding:12px; overflow:visible; }
+    .pipe { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:14px; }
+    .node { min-width:0; padding:12px; }
+    .arrow { display:none; }
+    .detail { padding:12px; overflow:hidden; }
+    .detail pre { font-size:12px; line-height:1.65; }
+    .boards,.recs { grid-template-columns:minmax(0,1fr); }
+    .board,.rec { min-width:0; }
+    .rec-h { flex-wrap:wrap; }
+    .rec-h .rec-t { flex-basis:calc(100% - 32px); }
+    .hot-row .ht { white-space:normal; }
+    .side { border-left:0; border-top:1px solid var(--line); padding:14px 12px 80px; max-height:none; }
+    .gate-box,.banner { margin-bottom:12px; }
+    .gate-btn { width:100%; margin-right:0; }
+  }
 </style>
 </head>
 <body>
