@@ -1,3 +1,4 @@
+import { chromium } from 'playwright-core';
 import type { LlmClient } from '../llm/client.js';
 
 export interface AnalyzedXhsProfile {
@@ -31,6 +32,37 @@ function validProfileUrl(raw: string): URL {
   return url;
 }
 
+async function browserNoteTitles(url: URL): Promise<string[]> {
+  const executablePath =
+    process.env.CHROMIUM_PATH ??
+    (process.platform === 'darwin'
+      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      : '/usr/bin/chromium');
+  const browser = await chromium.launch({
+    executablePath,
+    headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
+  try {
+    const page = await browser.newPage({
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36',
+      viewport: { width: 1440, height: 1000 },
+      locale: 'zh-CN',
+    });
+    await page.goto(url.toString(), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForSelector('.note-item .title', { timeout: 20_000 });
+    return await page.locator('.note-item .title').evaluateAll((elements) =>
+      elements
+        .map((element) => element.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .slice(0, 60),
+    );
+  } finally {
+    await browser.close();
+  }
+}
+
 export async function analyzeXhsProfile(
   rawUrl: string,
   llm: LlmClient,
@@ -62,10 +94,17 @@ export async function analyzeXhsProfile(
   const displayName = page?.basicInfo?.nickname?.trim() ?? '';
   const bio = page?.basicInfo?.desc?.trim() ?? '';
   const cards = page?.notes?.flat() ?? [];
-  const noteTitles = cards
+  let noteTitles = cards
     .map((item) => item.noteCard?.displayTitle?.trim() ?? '')
     .filter(Boolean)
     .slice(0, 60);
+  if (noteTitles.length < 3) {
+    try {
+      noteTitles = await browserNoteTitles(url);
+    } catch {
+      // 小红书可能要求验证或 Chromium 暂不可用；后续按真实简介透明降级。
+    }
+  }
   if (!displayName) throw new Error('主页未返回账号名称，可能需要验证或链接已失效');
 
   const analysis = await llm.completeJson<{
