@@ -13,7 +13,9 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       WEIBO_COOKIE: ${WEIBO_COOKIE:-}
     ports:
-      - "127.0.0.1:${HOST_PORT:-5180}:5180"
+      # 共享 Caddy 在另一个 Docker network，经宿主机网关访问此端口。
+      # VPS 防火墙只开放 22/80/443，5180 不对公网放行。
+      - "${HOST_PORT:-5180}:5180"
     volumes:
       - runs_data:/app/runs
       - cache_data:/app/cache
