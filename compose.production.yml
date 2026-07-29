@@ -2,6 +2,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.75
     environment:
       POSTGRES_DB: macro_influencer
       POSTGRES_USER: macro_influencer
@@ -15,11 +17,13 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   app:
-    image: macro-influencer:${IMAGE_TAG}
+    image: ${REGISTRY_IMAGE:-macro-influencer}:${IMAGE_TAG}
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    mem_limit: 1024m
+    cpus: 1.5
     environment:
       VIZ_PORT: "5180"
       LLM_BACKEND: ${LLM_BACKEND:-fox}

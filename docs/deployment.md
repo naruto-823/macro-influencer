@@ -2,6 +2,9 @@
 
 本项目调用 `naruto-823/docker-vps-deploy-template@v1` 发布到单台 VPS。
 
+镜像由 GitHub Actions Buildx 构建并推送到 `ghcr.io/naruto-823/macro-influencer:<commit>`；
+VPS 只负责拉取镜像和切换容器，禁止在生产机执行依赖安装或 Docker build。
+
 ## GitHub 配置
 
 仓库 Actions Secrets：
