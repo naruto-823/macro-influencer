@@ -49,3 +49,12 @@ influencer.example.com {
 ```
 
 运行产物与热点缓存分别保存在 Docker named volumes `runs_data`、`cache_data` 中，发布新 commit 不会丢失。
+
+## 持久化工作流
+
+生产 Web 流水线使用 Mastra Workflow 执行，`@mastra/pg` 在同一 PostgreSQL 实例的
+`mastra` schema 中保存 workflow snapshot。每个业务节点完成后都会产生持久化检查点；
+选题与风控使用 suspend/resume，容器重启后由 Mastra 自动恢复仍在执行的 run。
+
+应用自己的用户、账号表继续位于默认 schema，Mastra 表与业务表相互隔离。部署数据库账号需要拥有
+创建 `mastra` schema 和其中表、索引的权限。
