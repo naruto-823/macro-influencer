@@ -1,3 +1,5 @@
+ARG RUNTIME_BASE_IMAGE=ghcr.io/naruto-823/macro-influencer:4abfbaaf7cb371c6019f620756c1886664bc24e8
+
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
@@ -11,11 +13,7 @@ COPY src ./src
 COPY assets ./assets
 RUN pnpm build && cp src/viz/index.html dist/viz/index.html && pnpm prune --prod
 
-FROM node:22-bookworm-slim AS runtime
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium fonts-noto-cjk \
-    && rm -rf /var/lib/apt/lists/*
+FROM ${RUNTIME_BASE_IMAGE} AS runtime
 
 ENV NODE_ENV=production \
     VIZ_PORT=5180 \
@@ -23,12 +21,9 @@ ENV NODE_ENV=production \
     CHROMIUM_PATH=/usr/bin/chromium
 WORKDIR /app
 
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/node_modules ./node_modules
+USER root
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/assets ./assets
-
-RUN mkdir -p runs cache && chown -R node:node /app
+RUN chown -R node:node /app/dist
 USER node
 
 EXPOSE 5180
