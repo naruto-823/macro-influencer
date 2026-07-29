@@ -92,7 +92,7 @@ export class WorkflowEngine {
       currentSkill = skill.name;
       onEvent?.({ type: 'stage.start', skill: skill.name, title: skill.title, index: i });
       ctx.emit(`▶ ${skill.title}`);
-      const autoRetries = this.cfg.autoRetries ?? 0;
+      const autoRetries = stage.autoRetries ?? this.cfg.autoRetries ?? 0;
       // 失败重试循环：先静默自动重试，用尽后交人工（重试/跳过/中止），重试复用已跑好的前序 bag。
       let attempt = 0;
       let skipped = false;

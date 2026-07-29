@@ -54,8 +54,9 @@ export const STAGES: Stage[] = [
   { skillName: 'deep.search', timeoutMs: 1_200_000 },
   { skillName: 'content.outline' },
   { skillName: 'content.draft' },
-  // 多轮精修（每维度：fox 裁判 + claude-p 整篇改写，后者偶尔回退 fox），给足时间。
-  { skillName: 'content.refine', timeoutMs: 1_500_000 },
+  // 多轮精修包含多次模型调用，但失败后整段自动重跑会重复所有已完成轮次、造成长时间假死。
+  // 最多运行 12 分钟，失败立即交给用户决定是否单节点重试。
+  { skillName: 'content.refine', timeoutMs: 720_000, autoRetries: 0 },
   // 事实核查发现的🔴/🟡项不再交给用户手工放行；下一步风控会自动删除、
   // 弱化或加限定语。修复后的全文仍会在风控卡点展示，供最终确认。
   { skillName: 'fact.check' },

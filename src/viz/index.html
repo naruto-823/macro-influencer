@@ -216,7 +216,7 @@ accountForm.onsubmit=async e=>{
   saveAccount.disabled=false;
 };
 loadAccounts().catch(()=>{statusEl.textContent='账号加载失败'});
-let outputs = {}, activeSkill = null;
+let outputs = {}, activeSkill = null, viewingHistory = false;
 // 这些阶段照常后台运行，但不在流水线节点行单独显示；其产物并入 ① 热点·选题 面板展示。
 const HIDDEN = new Set(['hotspot.recommend','topic.generate']);
 // 隐藏阶段的运行状态/卡点标记映射到哪个可见节点。
@@ -253,6 +253,7 @@ function addGate(sk,choice){
 }
 
 function fmt(sk,o){
+  if(o==null&&viewingHistory) return '<span class="empty">这条历史任务在该节点前中断，没有生成产物。可以点击右上角“重试这一步”继续。</span>';
   if(o==null) return '<span class="empty">运行中…</span>';
   if(sk==='hotspot.fetch'){
     const a=o||[]; if(!a.length) return '<span class="empty">本次无热点</span>';
@@ -393,14 +394,16 @@ async function loadRuns(){
 async function openRun(id){
   try{
     const bag=await (await fetch('/runs/'+encodeURIComponent(id))).json();
-    RUN_ID=id;
+    RUN_ID=id; viewingHistory=true; outputs={};
     runsEl.querySelectorAll('.run-item').forEach(el=>el.classList.toggle('active', el.dataset.id===id));
     buildPipe(STAGE_ORDER);
     STAGE_ORDER.forEach(sk=>{ if(bag[sk]!==undefined){ outputs[sk]=bag[sk]; setNode(sk,'done'); } });
+    const interrupted=STAGE_ORDER.find(sk=>!HIDDEN.has(sk)&&bag[sk]===undefined);
+    if(interrupted)setNode(interrupted,'failed','已中断 · 可重试');
     if(bag['gate.topic.generate']) addGate('topic.generate', bag['gate.topic.generate']);
     if(bag['gate.fact.check']) addGate('fact.check', bag['gate.fact.check']);
     if(bag['gate.risk.review']) addGate('risk.review', bag['gate.risk.review']);
-    banner.className='banner ok'; banner.textContent='📂 历史回看：'+id;
+    banner.className=interrupted?'banner fail':'banner ok'; banner.textContent=(interrupted?'⚠️ 未完成的历史任务：':'📂 历史回看：')+id;
     showDetail(bag['image.render']!==undefined ? 'image.render' : bag['asset.assemble']!==undefined ? 'asset.assemble' : (STAGE_ORDER.find(sk=>bag[sk]!==undefined)||'hotspot.fetch'));
   }catch{ banner.className='banner fail'; banner.textContent='读取历史失败：'+id; }
 }
@@ -442,7 +445,7 @@ function clearFailure(){ failEl.style.display='none'; failEl.innerHTML=''; }
 const es=new EventSource('/events');
 es.onmessage=ev=>{
   const e=JSON.parse(ev.data);
-  if(e.type==='run.start'){ RUN_ID=e.runId; statusEl.textContent='运行中'; goBtn.disabled=true; clearGate(); clearFailure(); buildPipe(e.stages); log('▶ 开始：'+e.persona,1); }
+  if(e.type==='run.start'){ RUN_ID=e.runId; viewingHistory=false; outputs={}; statusEl.textContent='运行中'; goBtn.disabled=true; clearGate(); clearFailure(); buildPipe(e.stages); log('▶ 开始：'+e.persona,1); }
   else if(e.type==='stage.start'){
     const sub=e.skill==='hotspot.recommend'?'精选推荐中…':e.skill==='topic.generate'?'生成选题中…':undefined;
     setNode(MERGED_INTO[e.skill]||e.skill,'running',sub); log('▶ '+e.title,1);

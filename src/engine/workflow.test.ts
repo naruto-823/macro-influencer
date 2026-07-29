@@ -93,6 +93,27 @@ describe('WorkflowEngine', () => {
     expect(bag.flaky).toBe('ok');
   });
 
+  it('阶段可覆盖全局 autoRetries，长耗时节点失败时不整段重跑', async () => {
+    const reg = new SkillRegistry();
+    let tries = 0;
+    reg.register(
+      skill('expensive', async () => {
+        tries++;
+        throw new Error('失败');
+      }),
+    );
+    const eng = new WorkflowEngine(reg, {
+      skillTimeoutMs: 1000,
+      runWallclockMs: 5000,
+      gate: async () => '',
+      autoRetries: 1,
+    });
+    await expect(
+      eng.run('r1', [{ skillName: 'expensive', autoRetries: 0 }], ctxBase()),
+    ).rejects.toThrow('失败');
+    expect(tries).toBe(1);
+  });
+
   it('onStageFailed=retry：用尽自动重试后人工重试，复用前序 bag', async () => {
     const reg = new SkillRegistry();
     let tries = 0;

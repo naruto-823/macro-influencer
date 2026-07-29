@@ -195,6 +195,8 @@ export interface Stage {
   skillName: string;
   /** 该阶段单独的超时（毫秒）；缺省用引擎全局 skillTimeoutMs。慢节点（联网调研/多轮精修）可放宽。 */
   timeoutMs?: number;
+  /** 该阶段失败后的静默自动重试次数；缺省使用引擎全局配置。长耗时节点应设为 0，避免整段重复造成假死。 */
+  autoRetries?: number;
   gateAfter?: {
     question: string;
     options: string[] | ((bag: Record<string, unknown>) => string[]);
