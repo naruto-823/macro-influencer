@@ -1,7 +1,57 @@
 import type { Hotspot, RecommendedHotspot, Skill, Topic } from '../engine/types.js';
 
+interface RawTopic {
+  title: string;
+  angle: string;
+  rationale: string;
+}
+
 interface RawTopics {
-  topics: Array<{ title: string; angle: string; rationale: string }>;
+  topics: RawTopic[];
+}
+
+function normalizeTopics(raw: unknown): RawTopic[] {
+  let candidate = raw;
+  if (typeof candidate === 'string') {
+    try {
+      candidate = JSON.parse(candidate);
+    } catch {
+      throw new Error('模型返回的选题不是有效 JSON');
+    }
+  }
+
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    candidate = (candidate as Record<string, unknown>).topics;
+  }
+  if (typeof candidate === 'string') {
+    try {
+      candidate = JSON.parse(candidate);
+    } catch {
+      throw new Error('模型返回的 topics 字段不是有效 JSON');
+    }
+  }
+  // 部分模型会返回 { topics: { t1: {...}, t2: {...} } }，兼容这种常见偏差。
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    candidate = Object.values(candidate as Record<string, unknown>);
+  }
+  if (!Array.isArray(candidate)) {
+    throw new Error('模型返回的 topics 必须是数组');
+  }
+
+  return candidate.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`模型返回的第 ${index + 1} 个选题格式错误`);
+    }
+    const topic = item as Record<string, unknown>;
+    if (
+      typeof topic.title !== 'string' ||
+      typeof topic.angle !== 'string' ||
+      typeof topic.rationale !== 'string'
+    ) {
+      throw new Error(`模型返回的第 ${index + 1} 个选题缺少 title、angle 或 rationale`);
+    }
+    return { title: topic.title, angle: topic.angle, rationale: topic.rationale };
+  });
 }
 
 export const topicGenerateSkill: Skill<Topic[]> = {
@@ -56,7 +106,7 @@ export const topicGenerateSkill: Skill<Topic[]> = {
         .join('\n'),
     });
 
-    const topics: Topic[] = raw.topics.map((t, i) => ({ id: `t${i + 1}`, ...t }));
+    const topics: Topic[] = normalizeTopics(raw).map((t, i) => ({ id: `t${i + 1}`, ...t }));
     ctx.emit(`  生成 ${topics.length} 个选题`);
     return topics;
   },

@@ -36,4 +36,19 @@ describe('topic.generate', () => {
     expect(llm.calls[0]?.prompt).toContain('年轻人用AI管理时间');
     expect(llm.calls[0]?.prompt).toContain('职场效率');
   });
+
+  it('兼容模型把 topics 返回为带编号的对象', async () => {
+    const llm = new FakeLlmClient([
+      JSON.stringify({
+        topics: { t1: { title: '选题1', angle: '角度1', rationale: '契合理由1' } },
+      }),
+    ]);
+    const topics = await topicGenerateSkill.run(ctx(llm));
+    expect(topics).toEqual([{ id: 't1', title: '选题1', angle: '角度1', rationale: '契合理由1' }]);
+  });
+
+  it('对不可用的 topics 返回明确错误', async () => {
+    const llm = new FakeLlmClient([JSON.stringify({ topics: null })]);
+    await expect(topicGenerateSkill.run(ctx(llm))).rejects.toThrow('topics 必须是数组');
+  });
 });
