@@ -48,9 +48,7 @@ export function parseBingHtml(html: string): WebSearchHit[] {
   return [...html.matchAll(/<li[^>]*class="[^"]*b_algo[^"]*"[^>]*>([\s\S]*?)<\/li>/gi)]
     .map((match) => {
       const block = match[1] ?? '';
-      const anchor = block.match(
-        /<h2[^>]*>[\s\S]*?<a[^>]+href="(https?:\/\/[^"#]+)"[^>]*>([\s\S]*?)<\/a>/i,
-      );
+      const anchor = block.match(/<h2[^>]*>[\s\S]*?<a[^>]+href="(https?:\/\/[^"#]+)"[^>]*>([\s\S]*?)<\/a>/i);
       return {
         url: decodeEntities(anchor?.[1] ?? ''),
         title: plainText(anchor?.[2] ?? ''),
@@ -62,19 +60,14 @@ export function parseBingHtml(html: string): WebSearchHit[] {
 
 async function getText(url: string, timeoutMs: number): Promise<string> {
   const response = await fetch(url, {
-    headers: {
-      'user-agent': USER_AGENT,
-      accept: 'text/html,application/xhtml+xml,application/xml',
-    },
+    headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/xhtml+xml,application/xml' },
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
-export async function searchPublicWeb(
-  topic: string,
-): Promise<{ materials: string[]; hits: WebSearchHit[] }> {
+export async function searchPublicWeb(topic: string): Promise<{ materials: string[]; hits: WebSearchHit[] }> {
   const query = encodeURIComponent(topic);
   const failures: string[] = [];
   let hits: WebSearchHit[] = [];
@@ -94,9 +87,7 @@ export async function searchPublicWeb(
 
   hits = [...new Map(hits.map((hit) => [hit.url, hit])).values()].slice(0, 8);
   if (hits.length === 0) {
-    throw new Error(
-      `公网搜索没有返回有效结果${failures.length ? `（${failures.join('；')}）` : ''}`,
-    );
+    throw new Error(`公网搜索没有返回有效结果${failures.length ? `（${failures.join('；')}）` : ''}`);
   }
 
   const pages = await Promise.all(
