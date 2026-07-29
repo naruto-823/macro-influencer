@@ -13,9 +13,10 @@ import type {
   RenderedImage,
   SkillContext,
 } from '../engine/types.js';
+import { MastraPipelineRuntime } from '../mastra/pipeline.js';
 import { persistRun } from '../output/persist.js';
 import { gunziDarenPersona } from '../persona/examples/gunzi-daren.js';
-import { buildRegistry, runPipeline } from '../run.js';
+import { buildRegistry } from '../run.js';
 import { imageDir, renderPanel } from '../skills/image-render.js';
 import { CachedHotspotSource } from '../sources/cached-hotspot.js';
 import { MultiHotspotSource } from '../sources/web-hotspot.js';
@@ -44,15 +45,16 @@ const INDEX_HTML = fileURLToPath(new URL('./index.html', import.meta.url));
 const SERVER_ID = String(Date.now());
 
 const RUNS_DIR = resolve('runs');
+const pipelineRuntime = await MastraPipelineRuntime.create(process.env.DATABASE_URL ?? '');
 
 type PipelineEvent = Parameters<EventBus['emit']>[0];
 interface ClientState {
   bus: EventBus;
   running: boolean;
   retrying: boolean;
-  pendingGate: { options: string[]; resolve: (choice: string) => void } | null;
-  pendingFailure: { resolve: (choice: 'retry' | 'skip' | 'abort') => void } | null;
+  pendingGate: { options: string[]; step: 'topic.approval' | 'risk.approval' } | null;
   events: PipelineEvent[];
+  currentRunId: string | null;
 }
 const clients = new Map<string, ClientState>();
 function stateFor(userId: string): ClientState {
@@ -63,8 +65,8 @@ function stateFor(userId: string): ClientState {
       running: false,
       retrying: false,
       pendingGate: null,
-      pendingFailure: null,
       events: [],
+      currentRunId: null,
     };
     clients.set(userId, state);
   }
@@ -152,68 +154,33 @@ async function startRun(userId: string, state: ClientState, personaId: string): 
   if (state.running) return false;
   state.running = true;
   state.pendingGate = null;
-  state.pendingFailure = null;
   const runId = newRunId();
-  // 增量落盘：每完成一步/每个卡点都把已生成的内容写盘，
-  // 这样即便后面失败、中断、或服务重启，已经产出的（选题/初稿/打磨/成品）也都在历史里、刷新可见。
-  const liveBag: Record<string, unknown> = {};
-  liveBag.__userId = userId;
-  // 记下这条 run 用的人设 id，单节点重试时要据此重建 ctx。
-  liveBag.__personaId = personaId;
-  void persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
+  state.currentRunId = runId;
   const onEvent = (e: PipelineEvent) => {
     if (e.type === 'run.start') state.events = [];
     state.events.push(e);
     state.bus.emit(e);
-    if (e.type === 'stage.done') {
-      liveBag[e.skill] = e.output;
-      void persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
+    if (e.type === 'gate.waiting') {
+      state.pendingGate = {
+        options: e.options,
+        step: e.skill === 'risk.review' ? 'risk.approval' : 'topic.approval',
+      };
     } else if (e.type === 'gate') {
-      liveBag[`gate.${e.skill}`] = e.choice;
+      state.pendingGate = null;
+    } else if (e.type === 'run.done') {
+      state.running = false;
+      state.currentRunId = null;
+    } else if (e.type === 'run.failed') {
+      state.running = false;
     }
   };
   try {
-    const persona = await getAccount(userId, personaId);
-    if (!persona) throw new Error('账号不存在或不属于当前用户');
-    const writer = makeLlm();
-    const bag = await runPipeline(runId, {
-      llm: writer,
-      judge: makeJudge(writer),
-      persona,
-      hotspot: new CachedHotspotSource(
-        new MultiHotspotSource({ extraSources: [new WeiboHotspotSource()] }),
-        { ttlMs: 7_200_000, file: resolve('cache', 'hotspots.json') },
-      ),
-      engineCfg: {
-        // Opus 经 fox 代理单步可能 1-3 分钟；deepsearch 联网检索更慢；单步给到 8 分钟，避免成功前被掐。
-        skillTimeoutMs: 480_000,
-        // 含人工卡点等待 + 联网调研/多轮精修等慢节点，放宽到 60 分钟。
-        runWallclockMs: 3_600_000,
-        gate: (_question, options) =>
-          new Promise((resolve) => {
-            state.pendingGate = { options, resolve };
-          }),
-        // 失败先静默自动重试 1 次（吞瞬时超时/限流），仍失败则交人工。
-        autoRetries: 1,
-        onStageFailed: () =>
-          new Promise((resolve) => {
-            state.pendingFailure = { resolve };
-          }),
-        onEvent,
-      },
-    });
-    bag.__userId = userId;
-    bag.__personaId = personaId;
-    const dir = await persistRun(RUNS_DIR, runId, bag);
-    state.bus.emit({ type: 'run.done', runId, dir });
+    await pipelineRuntime.start({ runId, userId, personaId, onEvent });
   } catch (e) {
-    // 失败/中止时，已增量落盘的部分仍在历史里；这里兜底再存一次当前进度。
-    await persistRun(RUNS_DIR, runId, liveBag).catch(() => {});
-    state.bus.emit({ type: 'run.failed', error: e instanceof Error ? e.message : String(e) });
-  } finally {
     state.running = false;
-    state.pendingGate = null;
-    state.pendingFailure = null;
+    state.currentRunId = null;
+    onEvent({ type: 'run.failed', error: e instanceof Error ? e.message : String(e) });
+    return false;
   }
   return true;
 }
@@ -493,17 +460,33 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/gate') {
     const choice = url.searchParams.get('choice') ?? '';
-    if (!state.pendingGate) {
+    const recovered =
+      state.pendingGate && state.currentRunId
+        ? null
+        : await pipelineRuntime.findRun(userId, ['suspended']);
+    const runId = state.currentRunId ?? recovered?.runId;
+    const step =
+      state.pendingGate?.step ??
+      (recovered?.suspendedStep === 'risk.approval' ? 'risk.approval' : 'topic.approval');
+    if (!runId) {
       res.writeHead(409, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '当前没有待决策的卡点' }));
       return;
     }
     // 只接受合法选项，避免乱传
-    const ok = state.pendingGate.options.includes(choice);
+    const ok = state.pendingGate ? state.pendingGate.options.includes(choice) : choice.length > 0;
     if (ok) {
-      const g = state.pendingGate;
-      state.pendingGate = null;
-      g.resolve(choice);
+      try {
+        state.pendingGate = null;
+        state.currentRunId = runId;
+        state.running = true;
+        await pipelineRuntime.resume(runId, userId, step, choice);
+      } catch (error) {
+        state.running = false;
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error instanceof Error ? error.message : '恢复失败' }));
+        return;
+      }
     }
     res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(ok ? { ok: true } : { error: '非法选项' }));
@@ -512,16 +495,20 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && url.pathname === '/retry') {
     const choice = url.searchParams.get('choice') ?? '';
-    if (!state.pendingFailure) {
+    const recovered = state.currentRunId ? null : await pipelineRuntime.findRun(userId, ['failed']);
+    const runId = state.currentRunId ?? recovered?.runId;
+    if (!runId) {
       res.writeHead(409, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: '当前没有待处理的失败' }));
       return;
     }
-    const ok = choice === 'retry' || choice === 'skip' || choice === 'abort';
-    if (ok) {
-      const f = state.pendingFailure;
-      state.pendingFailure = null;
-      f.resolve(choice as 'retry' | 'skip' | 'abort');
+    const ok = choice === 'retry' || choice === 'abort';
+    if (choice === 'retry') {
+      state.running = true;
+      state.currentRunId = runId;
+      await pipelineRuntime.restart(runId, userId);
+    } else if (choice === 'abort') {
+      state.currentRunId = null;
     }
     res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(ok ? { ok: true } : { error: '非法选项' }));
@@ -593,7 +580,13 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: '请先选择自己导入的账号' }));
       return;
     }
-    const ok = await startRun(userId, state, personaId);
+    const existing = await pipelineRuntime.findRun(userId, [
+      'running',
+      'pending',
+      'waiting',
+      'suspended',
+    ]);
+    const ok = existing ? false : await startRun(userId, state, personaId);
     res.writeHead(ok ? 202 : 409, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(ok ? { started: true } : { error: '已有任务在跑' }));
     return;

@@ -428,7 +428,7 @@ function showGate(skill,question,options){
 function clearGate(){ gateEl.style.display='none'; gateEl.innerHTML=''; }
 
 const failEl=document.getElementById('fail');
-const RETRY_OPTS=[['retry','↻ 重试这一步'],['skip','⏭ 跳过'],['abort','✕ 中止整条']];
+const RETRY_OPTS=[['retry','↻ 从失败节点恢复'],['abort','✕ 结束这条任务']];
 function showFailure(skill,title,error){
   failEl.innerHTML=`<div class="gate-q">❌「${esc(title)}」失败：${esc(error)}</div>`+
     `<div style="font-size:12px;color:#8b949e;margin-bottom:10px">前面的节点结果都还在，重试只会重跑这一步，不会白跑。</div>`+
