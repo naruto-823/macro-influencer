@@ -1,5 +1,72 @@
 import type { DeepResearch, Outline, Skill, Topic } from '../engine/types.js';
 
+type RawOutline = Partial<Outline> & { outline?: unknown };
+
+function parseJsonField(value: unknown, errorMessage: string): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(errorMessage);
+  }
+}
+
+function toStr(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    const strings = Object.values(value).filter((x): x is string => typeof x === 'string');
+    return strings.length ? strings.join('：') : JSON.stringify(value);
+  }
+  return String(value ?? '');
+}
+
+function listFrom(value: unknown, field: string, allowPlainString = true): unknown[] {
+  const candidate = parseJsonField(value, `模型返回的 ${field} 字段不是有效 JSON`);
+  if (Array.isArray(candidate)) return candidate;
+  if (candidate && typeof candidate === 'object') {
+    return Object.values(candidate as Record<string, unknown>);
+  }
+  if (allowPlainString && typeof candidate === 'string') return [candidate];
+  throw new Error(`模型返回的 ${field} 必须是数组`);
+}
+
+function normalizeOutline(raw: unknown): Outline {
+  let candidate = parseJsonField(raw, '模型返回的大纲不是有效 JSON');
+  if (
+    candidate &&
+    typeof candidate === 'object' &&
+    !Array.isArray(candidate) &&
+    (candidate as RawOutline).outline
+  ) {
+    candidate = (candidate as RawOutline).outline;
+  }
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    throw new Error('模型返回的大纲必须是对象');
+  }
+
+  const outline = candidate as RawOutline;
+  const sections = listFrom(outline.sections, 'sections', false).map((section, index) => {
+    if (typeof section === 'string') return { heading: section, points: [] };
+    if (!section || typeof section !== 'object' || Array.isArray(section)) {
+      throw new Error(`模型返回的第 ${index + 1} 个 section 格式错误`);
+    }
+    const record = section as Record<string, unknown>;
+    return {
+      heading: toStr(record.heading),
+      points: listFrom(record.points ?? [], `sections[${index + 1}].points`).map(toStr),
+    };
+  });
+  if (sections.length === 0) throw new Error('模型返回的 sections 不能为空');
+
+  return {
+    hookStrategy: toStr(outline.hookStrategy),
+    thesis: toStr(outline.thesis),
+    sections,
+    goldenLines: listFrom(outline.goldenLines ?? [], 'goldenLines').map(toStr),
+    ending: toStr(outline.ending),
+  };
+}
+
 /**
  * ③ 搭框架：框架先行（行业 SOP：选题定了先写大纲再动笔）。
  * 只定骨架——钩子策略 / 核心立场 / 段落结构 / 金句落点 / 结尾收法，不写正文。
@@ -18,7 +85,7 @@ export const contentOutlineSkill: Skill<Outline> = {
       ? `\n\n【${research.online ? '联网查证档案' : '有限证据档案（未联网，仅可使用有来源限定的内容）'}】：\n${research.report}`
       : '';
 
-    const outline = await ctx.llm.completeJson<Outline>({
+    const raw = await ctx.llm.completeJson<Outline>({
       schema: {
         type: 'object',
         properties: {
@@ -62,20 +129,7 @@ export const contentOutlineSkill: Skill<Outline> = {
         .join('\n'),
     });
 
-    // 归一：模型偶尔把金句/要点返回成对象（如 {段落,金句}），统一压成字符串，避免下游与 UI 出现 [object Object]。
-    const toStr = (v: unknown): string => {
-      if (typeof v === 'string') return v;
-      if (v && typeof v === 'object') {
-        const ss = Object.values(v).filter((x): x is string => typeof x === 'string');
-        return ss.length ? ss.join('：') : JSON.stringify(v);
-      }
-      return String(v ?? '');
-    };
-    outline.goldenLines = (outline.goldenLines ?? []).map(toStr);
-    outline.sections = (outline.sections ?? []).map((s) => ({
-      heading: toStr(s?.heading),
-      points: (s?.points ?? []).map(toStr),
-    }));
+    const outline = normalizeOutline(raw);
 
     ctx.emit(
       `  框架就绪：${outline.sections.length} 段骨架 / ${outline.goldenLines.length} 个金句落点`,
